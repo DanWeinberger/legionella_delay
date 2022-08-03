@@ -75,6 +75,8 @@ OK, now we can try to go backwards, let's reconstruct the exposure time series b
 
 - epsilon follows an AR(1), which captures autocorrelation in the data; This is a base model with no explanatory variables. Epsilon could be a function of weather variables, etc 
 
+
+**this is not correct as written **
 ```{r}
 model_string <- "
 model{
@@ -153,9 +155,12 @@ names(post_means)<-sample.labs
 
 post_means_epsilon <- post_means[grep('epsilon',names(post_means))]
 
+post_means_lambda <- post_means[grep('lambda',names(post_means))]
+
 
 plot(observed_ts$N_cases[1:365], type='l')
 points(post_means_epsilon, type='l' ,col='red')
+points(post_means_lambda, type='l' ,col='blue')
 
 
 ```
