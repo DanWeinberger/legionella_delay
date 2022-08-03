@@ -12,6 +12,8 @@ library(dplyr)
 library(reshape2)
 library(rjags)
 library(stringr)
+library(gtools)
+
 library(HDInterval)
 ```
 
@@ -78,6 +80,27 @@ OK, now we can try to go backwards, let's reconstruct the exposure time series b
 - epsilon follows an AR(1), which captures autocorrelation in the data; This is a base model with no explanatory variables. Epsilon could be a function of weather variables, etc 
 
 
+Intuition for dirichlet prior. Looks like 'scale10' might be a reasonable level of information
+```{r}
+delay_dist_scale1 <- delay_dist/max(delay_dist)*1
+delay_dist_scale10 <- delay_dist/max(delay_dist)*10
+delay_dist_scale100 <- delay_dist/max(delay_dist)*100
+delay_dist_scale1000 <- delay_dist/max(delay_dist)*1000
+
+test1 <- t(rdirichlet(100, delay_dist_scale1))
+test10 <- t(rdirichlet(100, delay_dist_scale10))
+test100 <- t(rdirichlet(100, delay_dist_scale100))
+test1000 <- t(rdirichlet(100, delay_dist_scale1000))
+
+par(mfrow=c(2,2))
+matplot(test1, type='l')
+matplot(test10, type='l')
+matplot(test100, type='l')
+matplot(test1000, type='l')
+
+```
+
+
 
 ```{r}
 model_string <- "
@@ -90,24 +113,24 @@ for(t in 22:N_times){
 
 for(t in 1:N_times){
 for(d in (1:21)){ #triangle incomplete for first 21 time points
-  log(delta[(t+d),d]) <- alpha[t]  + log_delay_est[d] #the t+d is the key here
+  delta[(t+d-1),d] <-  epsilon[t]*delay_est[d] #the t+d-1 is the key here, adds the delay, subtract 1 bc smallest delay is 0
    } 
+
+epsilon[t] <- exp(int + alpha[t])
  }
 
+  int ~ dnorm(0, 1e-4)
  alpha[1] ~ dnorm(0, tau2.alpha/(1-rho^2))
 
  for( t in 2:N_times ){
   alpha[t] ~ dnorm(rho*alpha[t-1],tau2.alpha)
  }
 
-    tau1 ~ dgamma(0.01,0.01)
- 
     tau2.alpha ~ dgamma(0.01,0.01)
     
     rho ~ dunif (-1,1)
     
-   delay_est ~ ddirch(delay_dist) #use values from literature as priors for the dirichlet
-   log_delay_est <- log(delay_est)
+   delay_est ~ ddirch(delay_dist_scale10) #use values from literature as priors for the dirichlet
 
 }
 "
@@ -130,13 +153,13 @@ model_jags<-jags.model(model_spec,
                        inits=list(inits1,inits2, inits3),
                        data=list('N_cases'=observed_ts$N_cases,
                                  'N_times'=365, #could use whole dataset but would take a long time
-                                                       'delay_dist'=delay_dist
+                                                       'delay_dist_scale10'=delay_dist_scale10
                                     ),
                        n.adapt=10000, 
                        n.chains=3)
 
 
-params<-c('lambda', 'alpha', 'delay_est')
+params<-c('lambda', 'alpha', 'delay_est','epsilon')
 
 ##############################################
 #Posterior Sampling
@@ -148,7 +171,7 @@ posterior_samples<-coda.samples(model_jags,
 posterior_samples.all<-do.call(rbind,posterior_samples)
 #post1.summary<-summary(posterior_samples)
 #post_means<-colMeans(posterior_samples.all)
-post_means<-apply(posterior_samples.all, 2, median)
+post_means<-apply(posterior_samples.all, 2, mean)
 sample.labs<-names(post_means)
 ci<-t(hdi(posterior_samples.all, credMass = 0.95))
 #ci<-matrix(sprintf("%.1f",round(ci,1)), ncol=2)
