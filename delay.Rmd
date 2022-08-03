@@ -79,16 +79,29 @@ model_string <- "
 model{
 for(t in 1:N_times){
   N_cases[t] ~ dpois(lambda[t])
+  lambda[t] <- sum(delta[t,]) 
 
 for(d in (1:21)){
-  lambda[t] <- sum(delta[t,d]) #delta has dimensions [t,d]
-
-  #These are equivalent, neither works.
-  #epsilon[t] <- delta[t,d] / delay_dist[d] 
   delta[t,d] <- epsilon[t] * delay_dist[d] 
+}
+    epsilon[t] <- exp(rho*alpha[t] +phi[t]) #AR(1) 
 
-  }
  }
+
+  alpha[1] ~ dnorm(0, 1e-4)
+  phi[1] <- 0
+
+ for( t in 2:N_times ){
+  alpha[t] ~ dnorm(alpha[t-1],tau2.alpha)
+  phi[t]~ dnorm(0, tau1)
+ }
+
+    tau1 ~ dgamma(0.01,0.01)
+ 
+    tau2.alpha ~ dgamma(0.01,0.01)
+    
+    rho ~ dunif (-1,1)
+
 }
 "
 
