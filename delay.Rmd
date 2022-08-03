@@ -78,9 +78,7 @@ OK, now we can try to go backwards, let's reconstruct the exposure time series b
 - epsilon follows an AR(1), which captures autocorrelation in the data; This is a base model with no explanatory variables. Epsilon could be a function of weather variables, etc 
 
 
-**this is not correct as written **
-issues--
-1) use dirichlet to capture uncertainty in the delay distribution
+
 ```{r}
 model_string <- "
 model{
@@ -92,19 +90,14 @@ for(t in 22:N_times){
 
 for(t in 1:N_times){
 for(d in (1:21)){ #triangle incomplete for first 21 time points
-  delta[(t+d),d] <- epsilon[t] * delay_est[d] #the t+d is the key here
-}
-    epsilon[t] <- exp(int + rho*alpha[t] +phi[t]) #AR(1) 
-
+  log(delta[(t+d),d]) <- alpha[t]  + log_delay_est[d] #the t+d is the key here
+   } 
  }
 
-  int ~ dnorm(0, 1e-4)
-  alpha[1] <- 0 
-  phi[1] <- 0
+ alpha[1] ~ dnorm(0, tau2.alpha/(1-rho^2))
 
  for( t in 2:N_times ){
-  alpha[t] ~ dnorm(alpha[t-1],tau2.alpha)
-  phi[t]~ dnorm(0, tau1)
+  alpha[t] ~ dnorm(rho*alpha[t-1],tau2.alpha)
  }
 
     tau1 ~ dgamma(0.01,0.01)
@@ -114,7 +107,7 @@ for(d in (1:21)){ #triangle incomplete for first 21 time points
     rho ~ dunif (-1,1)
     
    delay_est ~ ddirch(delay_dist) #use values from literature as priors for the dirichlet
-
+   log_delay_est <- log(delay_est)
 
 }
 "
@@ -143,7 +136,7 @@ model_jags<-jags.model(model_spec,
                        n.chains=3)
 
 
-params<-c('lambda','epsilon', 'alpha', 'phi','delay_est')
+params<-c('lambda', 'alpha', 'delay_est')
 
 ##############################################
 #Posterior Sampling
@@ -174,12 +167,16 @@ post_epsilon <- combined[grep('epsilon',names(post_means)),]
 
 post_lambda <- combined[grep('lambda',names(post_means)),]
 
-
+#model vs observed TS
 plot(observed_ts$N_cases[1:365], type='l')
 points(post_epsilon$index_t, post_epsilon$mean, type='l' ,col='red')
 points(post_lambda$index_t,post_lambda$mean, type='l' ,col='blue')
 
+#model vs true exposure TS
 
+plot(df1$N_exposures[1:365], type='l')
+points(post_epsilon$index_t, post_epsilon$mean, type='l' ,col='red')
+points(post_lambda$index_t,post_lambda$mean, type='l' ,col='blue')
 
 str(posterior_samples.all)
 ```
@@ -187,15 +184,16 @@ str(posterior_samples.all)
 ```{r}
 post_delay_est <- combined[grep('delay_est',names(post_means)),]
 
-plot(post_delay_est$mean, type='l')
-points(delay_dist)
+plot(post_delay_est$mean, type='l', ylim=c(0,1))
+points(delay_dist, type='l', lty=2, lwd=2, col='red')
 
 
 post_samples_delay <- posterior_samples.all[,grep('delay_est',names(post_means))]
 
 apply(post_samples_delay[1:100,],1,sum)
 
-matplot(t(post_samples_delay[1:100,]))
+matplot(t(post_samples_delay[1:2000,]), type='l')
+points(delay_dist, col='red', lwd=2, lty=2, type='l')
 
 ```
 
