@@ -82,10 +82,11 @@ model_string <- "
 model{
 for(t in 1:N_times){
   N_cases[t] ~ dpois(lambda[t])
+  
   lambda[t] <- sum(delta[t,]) 
 
 for(d in (1:21)){
-  delta[t,d] <- epsilon[t] * delay_dist[d] 
+  delta[(t+d),d] <- epsilon[t] * delay_dist[d] #the t+d is the key here
 }
     epsilon[t] <- exp(int + rho*alpha[t] +phi[t]) #AR(1) 
 
