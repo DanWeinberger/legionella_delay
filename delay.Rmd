@@ -1,0 +1,71 @@
+---
+title: "Legionella delay"
+author: "Dan Weinberger"
+date: '2022-08-03'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(lubridate)
+library(dplyr)
+library(reshape2)
+```
+
+## Background
+The goal for this analysis is to reconstruct a time series of legionella infections using a time series based on symptom onset date and a delay distribution. This latent time series will then be linked to climate variables. This will be accomplished in a Bayesian framework using rjags.
+
+
+
+### First, generate a time series based on exposure date..we will then apply a delay distribution to this to get an 'observed' time series, and see if we can then
+
+```{r}
+set.seed(123)
+df1  <- cbind.data.frame('dates'=seq.Date(from=as.Date('2012-01-01'), to=as.Date('2022-07-01'), by='day'))
+
+df1 <- df1 %>%
+  mutate(t=row_number(), 
+         sin1= 2*sin(2*pi*t/365),
+         N_exposures = rpois(length(dates), exp(1 + 0.3*sin1 + rnorm(length(dates),0,0.75))) ) 
+
+plot(df1$N_exposures)
+```
+
+Distribution to estimate the time between exposure and symptom onset. It's bounded at 20 days which is about the uppermost end.
+```{r}
+x <- seq(0, 20, by=1)
+delay_dist = dgamma(x, shape = 4.96, scale = 1.27, log = FALSE)
+plot(delay_dist, type = 'l')
+
+#rmultinom(1,100,delay_dist)
+```
+Take random draws from a multinomial, based on N exosures on that day and the delay distribution to determine how many cases that were exposed on date t have symptom onset with a delay of d, with d{1:21}
+
+```{r}
+set.seed(1234)
+dist_data <- t(sapply(df1$N_exposures, function(x) rmultinom(1,x,delay_dist)))
+
+df2 <- cbind.data.frame('dates'=df1$dates, dist_data)
+
+# Reshape the date into long format, determine the symptom onset date based on exposure date + delay, then sum by symptom onset date to get 'observed' time series
+
+observed_ts <- melt(df2, id.vars='dates') %>%
+  rename(exposure_date=dates) %>%
+  mutate(delay = as.numeric(as.character(variable)),
+         symptom_date= exposure_date + delay) %>%
+  group_by(symptom_date) %>%
+  summarize(N_cases=sum(value))
+```
+
+Compare the time series of exposure and time series of cases
+```{r, fig.width=6, fig.height=3}
+par(mfrow=c(1,2))
+
+plot(df1$N_exposures, type='l', main='N exposures', bty='l')
+  
+plot(observed_ts$N_cases, type='l', main="N cases based on sympom onset", bty='l')
+
+
+```
+
+
