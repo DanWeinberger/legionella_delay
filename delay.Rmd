@@ -70,28 +70,30 @@ plot(observed_ts$N_cases, type='l', main="N cases based on sympom onset", bty='l
 
 OK, now we can try to go backwards, let's reconstruct the exposure time series based on the case time series
 
-```{r}
-#lambda is the mean of the observed cases, based on symptom onset
-#Delta is the reporting triangle that links observed time series (lambda) and latent time series (epsilon)
-#
+- lambda is the mean of the observed cases, based on symptom onset
+- Delta is the reporting triangle that links observed time series (lambda) and latent time series (epsilon)
 
+- epsilon follows an AR(1), which captures 
+
+```{r}
 model_string <- "
 model{
-for(t in 1:N_times){
+for(t in 1:365){
   N_cases[t] ~ dpois(lambda[t])
   lambda[t] <- sum(delta[t,]) 
 
 for(d in (1:21)){
   delta[t,d] <- epsilon[t] * delay_dist[d] 
 }
-    epsilon[t] <- exp(rho*alpha[t] +phi[t]) #AR(1) 
+    epsilon[t] <- exp(int + rho*alpha[t] +phi[t]) #AR(1) 
 
  }
 
-  alpha[1] ~ dnorm(0, 1e-4)
+  int ~ dnorm(0, 1e-4)
+  alpha[1] <- 0 
   phi[1] <- 0
 
- for( t in 2:N_times ){
+ for( t in 2:365 ){
   alpha[t] ~ dnorm(alpha[t-1],tau2.alpha)
   phi[t]~ dnorm(0, tau1)
  }
