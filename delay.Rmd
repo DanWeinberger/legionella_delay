@@ -73,12 +73,12 @@ OK, now we can try to go backwards, let's reconstruct the exposure time series b
 - lambda is the mean of the observed cases, based on symptom onset
 - Delta is the reporting triangle that links observed time series (lambda) and latent time series (epsilon)
 
-- epsilon follows an AR(1), which captures 
+- epsilon follows an AR(1), which captures autocorrelation in the data; This is a base model with no explanatory variables. Epsilon could be a function of weather variables, etc 
 
 ```{r}
 model_string <- "
 model{
-for(t in 1:365){
+for(t in 1:N_times){
   N_cases[t] ~ dpois(lambda[t])
   lambda[t] <- sum(delta[t,]) 
 
@@ -93,7 +93,7 @@ for(d in (1:21)){
   alpha[1] <- 0 
   phi[1] <- 0
 
- for( t in 2:365 ){
+ for( t in 2:N_times ){
   alpha[t] ~ dnorm(alpha[t-1],tau2.alpha)
   phi[t]~ dnorm(0, tau1)
  }
@@ -124,11 +124,38 @@ model_spec<-textConnection(model_string)
 model_jags<-jags.model(model_spec, 
                        inits=list(inits1,inits2, inits3),
                        data=list('N_cases'=observed_ts$N_cases,
-                                 'N_times'=nrow(observed_ts),
+                                 'N_times'=365, #could use whole dataset but would take a long time
                                                        'delay_dist'=delay_dist
                                     ),
                        n.adapt=10000, 
                        n.chains=3)
+
+
+params<-c('lambda','epsilon', 'alpha', 'phi')
+
+##############################################
+#Posterior Sampling
+##############################################
+posterior_samples<-coda.samples(model_jags, 
+                                params, 
+                                n.iter=10000)
+
+posterior_samples.all<-do.call(rbind,posterior_samples)
+#post1.summary<-summary(posterior_samples)
+#post_means<-colMeans(posterior_samples.all)
+post_means<-apply(posterior_samples.all, 2, median)
+sample.labs<-names(post_means)
+ci<-t(hdi(posterior_samples.all, credMass = 0.95))
+ci<-matrix(sprintf("%.1f",round(ci,1)), ncol=2)
+row.names(ci)<-sample.labs
+post_means<-sprintf("%.1f",round(post_means,1))
+names(post_means)<-sample.labs
+
+post_means_epsilon <- post_means[grep('epsilon',names(post_means))]
+
+
+plot(observed_ts$N_cases[1:365], type='l')
+points(post_means_epsilon, type='l' ,col='red')
 
 
 ```
