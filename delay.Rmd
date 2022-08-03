@@ -80,7 +80,7 @@ OK, now we can try to go backwards, let's reconstruct the exposure time series b
 
 **this is not correct as written **
 issues--
-1) should generate draws from multinomial rather than fixing probabilities; can use dirichlet as in NobBS
+1) use dirichlet to capture uncertainty in the delay distribution
 ```{r}
 model_string <- "
 model{
@@ -92,7 +92,7 @@ for(t in 22:N_times){
 
 for(t in 1:N_times){
 for(d in (1:21)){ #triangle incomplete for first 21 time points
-  delta[(t+d),d] <- epsilon[t] * delay_dist[d] #the t+d is the key here
+  delta[(t+d),d] <- epsilon[t] * delay_est[d] #the t+d is the key here
 }
     epsilon[t] <- exp(int + rho*alpha[t] +phi[t]) #AR(1) 
 
@@ -112,6 +112,9 @@ for(d in (1:21)){ #triangle incomplete for first 21 time points
     tau2.alpha ~ dgamma(0.01,0.01)
     
     rho ~ dunif (-1,1)
+    
+   delay_est ~ ddirch(delay_dist) #use values from literature as priors for the dirichlet
+
 
 }
 "
@@ -140,7 +143,7 @@ model_jags<-jags.model(model_spec,
                        n.chains=3)
 
 
-params<-c('lambda','epsilon', 'alpha', 'phi')
+params<-c('lambda','epsilon', 'alpha', 'phi','delay_est')
 
 ##############################################
 #Posterior Sampling
@@ -155,9 +158,11 @@ posterior_samples.all<-do.call(rbind,posterior_samples)
 post_means<-apply(posterior_samples.all, 2, median)
 sample.labs<-names(post_means)
 ci<-t(hdi(posterior_samples.all, credMass = 0.95))
-ci<-matrix(sprintf("%.1f",round(ci,1)), ncol=2)
+#ci<-matrix(sprintf("%.1f",round(ci,1)), ncol=2)
+ci<-matrix(ci, ncol=2)
+
 row.names(ci)<-sample.labs
-post_means<-sprintf("%.1f",round(post_means,1))
+#post_means<-sprintf("%.1f",round(post_means,1))
 names(post_means)<-sample.labs
 
 index_n <- as.numeric(unlist(str_extract_all(names(post_means), "(?<=\\[).+?(?=\\])")))
@@ -174,6 +179,23 @@ plot(observed_ts$N_cases[1:365], type='l')
 points(post_epsilon$index_t, post_epsilon$mean, type='l' ,col='red')
 points(post_lambda$index_t,post_lambda$mean, type='l' ,col='blue')
 
+
+
+str(posterior_samples.all)
+```
+
+```{r}
+post_delay_est <- combined[grep('delay_est',names(post_means)),]
+
+plot(post_delay_est$mean, type='l')
+points(delay_dist)
+
+
+post_samples_delay <- posterior_samples.all[,grep('delay_est',names(post_means))]
+
+apply(post_samples_delay[1:100,],1,sum)
+
+matplot(t(post_samples_delay[1:100,]))
 
 ```
 
