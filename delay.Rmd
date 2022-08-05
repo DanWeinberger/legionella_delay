@@ -101,6 +101,7 @@ matplot(test1000, type='l')
 ```
 
 
+lambda ~ epsilon is distributed lag model that links unobserved exposure time series and observed case time series.
 
 ```{r}
 model_string <- "
@@ -108,15 +109,31 @@ model{
 for(t in 22:N_times){
   N_cases[t] ~ dpois(lambda[t])
   
-  lambda[t] <- sum(delta[t,]) 
-}
+  lambda[t] <- epsilon[t]*delay_est[1] + 
+               epsilon[t- 1 ]*delay_est[2] + 
+               epsilon[t- 2 ]*delay_est[3] +
+               epsilon[t- 3 ]*delay_est[4] + 
+               epsilon[t- 4 ]*delay_est[5] +
+               epsilon[t- 5 ]*delay_est[6] + 
+               epsilon[t- 6 ]*delay_est[7] +
+               epsilon[t- 7 ]*delay_est[8] + 
+               epsilon[t- 8 ]*delay_est[9] +
+               epsilon[t- 9 ]*delay_est[10] + 
+               epsilon[t- 10 ]*delay_est[11] +
+               epsilon[t- 11 ]*delay_est[12] + 
+               epsilon[t- 12 ]*delay_est[13] +
+               epsilon[t- 13 ]*delay_est[14] + 
+               epsilon[t- 14 ]*delay_est[15] +
+               epsilon[t- 15 ]*delay_est[16] + 
+               epsilon[t- 16 ]*delay_est[17] +
+               epsilon[t- 17 ]*delay_est[18] +
+               epsilon[t- 18 ]*delay_est[19] +
+               epsilon[t- 19 ]*delay_est[20] +
+               epsilon[t- 20 ]*delay_est[21]
 
-for(t in 1:N_times){
-for(d in (1:21)){ #triangle incomplete for first 21 time points
-  delta[(t+d-1),d] <-  epsilon[t]*delay_est[d] #the t+d-1 is the key here, adds the delay, subtract 1 bc smallest delay is 0
-   } 
-
-epsilon[t] <- exp(int + alpha[t])
+} 
+  for(t in 1:N_times){
+      epsilon[t] <- exp(int + alpha[t])
  }
 
   int ~ dnorm(0, 1e-4)
@@ -202,6 +219,15 @@ points(post_epsilon$index_t, post_epsilon$mean, type='l' ,col='red')
 points(post_lambda$index_t,post_lambda$mean, type='l' ,col='blue')
 
 str(posterior_samples.all)
+```
+
+Posteriors
+```{r}
+plot(posterior_samples.all[,'alpha[25]'], type='l')
+plot(posterior_samples.all[,'lambda[25]'], type='l')
+
+plot(posterior_samples.all[,'delay_est[10]'], type='l')
+
 ```
 
 ```{r}
