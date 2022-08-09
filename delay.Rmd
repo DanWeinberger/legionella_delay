@@ -69,27 +69,29 @@ plot(df1$N_exposures)
 ## Basic distributed lags model
 
 ```{r}
-model_df <- cbind.data.frame(df1,rain_composite) %>%
-  mutate(rain_lag1 = lag(rain_composite,1),
-         rain_lag2 = lag(rain_composite,2),
-         rain_lag3 = lag(rain_composite,3),
-         rain_lag4 = lag(rain_composite,4),
-         rain_lag5 = lag(rain_composite,5),
-         rain_lag6 = lag(rain_composite,6),
-         rain_lag7 = lag(rain_composite,7),
-         rain_lag8 = lag(rain_composite,8),
-         rain_lag9 = lag(rain_composite,9),
-         rain_lag10 = lag(rain_composite,10),
-         rain_lag11 = lag(rain_composite,11),
-         rain_lag12 = lag(rain_composite,12),
-         rain_lag13 = lag(rain_composite,13),
-         rain_lag14 = lag(rain_composite,14)
+model_df <- cbind.data.frame(df1,'rain'=rain_df[,1]) %>%
+  mutate(rain_lag1 = lag(rain,1),
+         rain_lag2 = lag(rain,2),
+         rain_lag3 = lag(rain,3),
+         rain_lag4 = lag(rain,4),
+         rain_lag5 = lag(rain,5),
+         rain_lag6 = lag(rain,6),
+         rain_lag7 = lag(rain,7),
+         rain_lag8 = lag(rain,8),
+         rain_lag9 = lag(rain,9),
+         rain_lag10 = lag(rain,10),
+         rain_lag11 = lag(rain,11),
+         rain_lag12 = lag(rain,12),
+         rain_lag13 = lag(rain,13),
+         rain_lag14 = lag(rain,14),
+         t=row_number(),
+         sin365= sin(2*pi*t/365)
          )
-mod1 <- glm(N_exposures ~ rain_composite + rain_lag1 + rain_lag2 + rain_lag3 + rain_lag4 + rain_lag5 + rain_lag6 + rain_lag7 + rain_lag8 + rain_lag9 + rain_lag10 +rain_lag11 + rain_lag12 + rain_lag13 + rain_lag14, data=model_df, family='poisson')
+mod1 <- glm(N_exposures ~  rain+ rain_lag1 + rain_lag2 + rain_lag3 + rain_lag4 + rain_lag5 + rain_lag6 + rain_lag7 + rain_lag8 + rain_lag9 + rain_lag10 +rain_lag11 + rain_lag12 + rain_lag13 + rain_lag14, data=model_df, family='poisson')
 summary(mod1)
 
-coefs_rain <- coef(mod1)[-1] 
-plot(coef(mod1)[-1])
+coefs_rain <- coef(mod1)[-c(1)] 
+plot(coefs_rain)
 plot(cumsum(coefs_rain))
 
 ```
@@ -116,19 +118,24 @@ df2 <- cbind.data.frame('dates'=df1$dates, dist_data)
 observed_ts <- melt(df2, id.vars='dates') %>%
   rename(exposure_date=dates) %>%
   mutate(delay = as.numeric(as.character(variable)),
-         symptom_date= exposure_date + delay) %>%
+         symptom_date= exposure_date + delay - 1) %>%
   group_by(symptom_date) %>%
   summarize(N_cases=sum(value))
+
+
+observed_ts <- merge(observed_ts, df1, by.x='symptom_date', by.y='dates')
 ```
 
 Compare the time series of exposure and time series of cases
 ```{r, fig.width=6, fig.height=3}
-par(mfrow=c(1,2))
+par(mfrow=c(1,1))
 
-plot(df1$N_exposures, type='l', main='N exposures', bty='l')
+plot(observed_ts$symptom_date, observed_ts$N_exposures, type='l', main='N exposures', bty='l')
   
-plot(observed_ts$N_cases, type='l', main="N cases based on sympom onset", bty='l')
+points(observed_ts$symptom_date,observed_ts$N_cases, type='l', main="N cases based on sympom onset", bty='l',col='red')
 
+
+ccf( observed_ts$N_cases,observed_ts$N_exposures,)
 ```
 
 OK, now we can try to go backwards, let's reconstruct the exposure time series based on the case time series. related to deconvolution approach of Lipsitch https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2796142/
@@ -216,7 +223,7 @@ for(t in 32:N_times){ #22 lag from linking epsilon to lambda, and 10 lag from li
     rho2 ~ dunif (-1,1)
     rho3 ~ dunif (-1,1)
 
-   delay_est ~ ddirch(delay_dist_scale10) #use values from literature as priors for the dirichlet
+   delay_est ~ ddirch(delay_dist_scale1000) #use values from literature as priors for the dirichlet
 
 }
 "
@@ -239,7 +246,7 @@ model_jags<-jags.model(model_spec,
                        inits=list(inits1,inits2, inits3),
                        data=list('N_cases'=observed_ts$N_cases,
                                  'N_times'=365, #could use whole dataset but would take a long time
-                                                       'delay_dist_scale10'=delay_dist_scale10,
+                                                       'delay_dist_scale1000'=delay_dist_scale1000,
                                  'rain'=rain_df$rain1
                                     ),
                        n.adapt=10000, 
@@ -299,7 +306,15 @@ str(posterior_samples.all)
 ```{r}
 post_beta <- combined[grep('beta',names(post_means)),]
 
-plot(post_beta$mean)
+
+plot(rain_weights, type='l')
+points(cumsum(post_beta$mean), type='l', col='red')
+
+
+#
+
+beta_samps <- posterior_samples.all[1:1000,grep('beta',names(post_means))]
+matplot(t(beta_samps), type='l')
 ```
 
 
