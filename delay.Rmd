@@ -28,15 +28,15 @@ SanMartinoPPts <- SanMartinoPPts[1:380,'Index']
 
 
 rain_df <- cbind.data.frame('rain1'=SanMartinoPPts)
-rain_df$rain2 <- lag(rain_df$rain1,2)
-rain_df$rain3 <- lag(rain_df$rain1,3)
-rain_df$rain4 <- lag(rain_df$rain1,4)
-rain_df$rain5 <- lag(rain_df$rain1,5)
-rain_df$rain6 <- lag(rain_df$rain1,6)
-rain_df$rain7 <- lag(rain_df$rain1,7)
-rain_df$rain8 <- lag(rain_df$rain1,8)
-rain_df$rain9 <- lag(rain_df$rain1,9)
-rain_df$rain10 <- lag(rain_df$rain1,10)
+rain_df$rain2 <- lag(rain_df$rain1,1)
+rain_df$rain3 <- lag(rain_df$rain1,2)
+rain_df$rain4 <- lag(rain_df$rain1,3)
+rain_df$rain5 <- lag(rain_df$rain1,4)
+rain_df$rain6 <- lag(rain_df$rain1,5)
+rain_df$rain7 <- lag(rain_df$rain1,6)
+rain_df$rain8 <- lag(rain_df$rain1,7)
+rain_df$rain9 <- lag(rain_df$rain1,8)
+rain_df$rain10 <- lag(rain_df$rain1,9)
 rain_df <- rain_df[11:(365+10),]
 
 rain_weights <- c(0,0.1, 0.2,0.3, 0.2, 0.1, 0.1, 0,0,0)
@@ -65,6 +65,35 @@ df1 <- df1 %>%
 
 plot(df1$N_exposures)
 ```
+
+## Basic distributed lags model
+
+```{r}
+model_df <- cbind.data.frame(df1,rain_composite) %>%
+  mutate(rain_lag1 = lag(rain_composite,1),
+         rain_lag2 = lag(rain_composite,2),
+         rain_lag3 = lag(rain_composite,3),
+         rain_lag4 = lag(rain_composite,4),
+         rain_lag5 = lag(rain_composite,5),
+         rain_lag6 = lag(rain_composite,6),
+         rain_lag7 = lag(rain_composite,7),
+         rain_lag8 = lag(rain_composite,8),
+         rain_lag9 = lag(rain_composite,9),
+         rain_lag10 = lag(rain_composite,10),
+         rain_lag11 = lag(rain_composite,11),
+         rain_lag12 = lag(rain_composite,12),
+         rain_lag13 = lag(rain_composite,13),
+         rain_lag14 = lag(rain_composite,14)
+         )
+mod1 <- glm(N_exposures ~ rain_composite + rain_lag1 + rain_lag2 + rain_lag3 + rain_lag4 + rain_lag5 + rain_lag6 + rain_lag7 + rain_lag8 + rain_lag9 + rain_lag10 +rain_lag11 + rain_lag12 + rain_lag13 + rain_lag14, data=model_df, family='poisson')
+summary(mod1)
+
+coefs_rain <- coef(mod1)[-1] 
+plot(coef(mod1)[-1])
+plot(cumsum(coefs_rain))
+
+```
+
 
 Distribution to estimate the time between exposure and symptom onset. It's bounded at 20 days which is about the uppermost end.
 ```{r}
@@ -169,13 +198,13 @@ for(t in 32:N_times){ #22 lag from linking epsilon to lambda, and 10 lag from li
  }
 
   int ~ dnorm(0, 1e-4)
- alpha[1] ~ dnorm(0, tau2.alpha/(1-rho2^2))
+ alpha[1] ~ dnorm(0, (1-rho2^2)/tau2.alpha)
 
  for( t in 2:N_times ){
   alpha[t] ~ dnorm(rho2*alpha[t-1],tau2.alpha)
  }
  
- beta[1] ~ dnorm(0,tau3.beta/(1-rho3^2))
+ beta[1] ~ dnorm(0,(1-rho3^2)/tau3.beta)
  for(i in 2:10){
   beta[i] ~ dnorm(rho3*beta[i-1], tau3.beta)
 
