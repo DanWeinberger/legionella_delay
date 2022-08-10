@@ -310,7 +310,8 @@ post_beta <- combined[grep('beta',names(post_means)),]
 plot(rain_weights, type='l')
 points(cumsum(post_beta$mean), type='l', col='red')
 
-
+plot(rain_weights, type='l')
+points(post_beta$mean, type='l', col='red')
 #
 
 beta_samps <- posterior_samples.all[1:1000,grep('beta',names(post_means))]
