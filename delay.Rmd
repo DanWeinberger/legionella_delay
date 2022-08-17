@@ -20,39 +20,7 @@ library(HDInterval)
 
 library(hydroTSM)
 ```
-Loading daily precipitation data at the station San Martino di Castrozza, Trento Province, Italy, with
-data from 01/Jan/1921 to 31/Dec/1990
-```{r}
-data(SanMartinoPPts)
-SanMartinoPPts <- SanMartinoPPts[1:380,'Index']
 
-
-rain_df <- cbind.data.frame('rain1'=SanMartinoPPts)
-rain_df$rain2 <- lag(rain_df$rain1,1)
-rain_df$rain3 <- lag(rain_df$rain1,2)
-rain_df$rain4 <- lag(rain_df$rain1,3)
-rain_df$rain5 <- lag(rain_df$rain1,4)
-rain_df$rain6 <- lag(rain_df$rain1,5)
-rain_df$rain7 <- lag(rain_df$rain1,6)
-rain_df$rain8 <- lag(rain_df$rain1,7)
-rain_df$rain9 <- lag(rain_df$rain1,8)
-rain_df$rain10 <- lag(rain_df$rain1,9)
-rain_df <- rain_df[11:(365+10),]
-
-rain_weights <- c(0,0.1, 0.2,0.3, 0.2, 0.1, 0.1, 0,0,0)
-
-rain_composite = as.matrix(rain_df) %*% rain_weights
-
-
-```
-
-
-## Background
-The goal for this analysis is to reconstruct a time series of legionella infections using a time series based on symptom onset date and a delay distribution. This latent time series will then be linked to climate variables. This will be accomplished in a Bayesian framework using rjags.
-
-There are basically 2 distributed lags models nested within each other; effect of rainfall/humidity on exposure (envrionmental lag), and association between exposures and cases (latent period). The environmental lag should be the same for everyone in the population because this represents an environmental process, while the latent lag might vary by age/comorbidity (e.g., shorter lag for older people)
-
-### First, generate a time series based on exposure date..we will then apply a delay distribution to this to get an 'observed' time series, and see if we can then
 
 ```{r}
 set.seed(123)
@@ -61,169 +29,46 @@ df1  <- cbind.data.frame('dates'=seq.Date(from=as.Date('2012-01-01'), length.out
 df1 <- df1 %>%
   mutate(t=row_number(), 
          sin1= 2*sin(2*pi*t/365),
-         N_exposures = rpois(length(dates), exp(1 + 0.3*sin1 + rnorm(length(dates),0,0.75)) + rain_composite*0.5 ) )
+         month = as.factor(month(dates)),
+         N_exposures = rpois(length(dates), exp(1 + 0.3*sin1 + rnorm(length(dates),0,0.75))  ) )
+month.mat <- model.matrix(~0 + month, data=df1)
+month.mat <- month.mat[,2:12]
 
 plot(df1$N_exposures)
 ```
 
-## Basic distributed lags model
 
-```{r}
-model_df <- cbind.data.frame(df1,'rain'=rain_df[,1]) %>%
-  mutate(rain_lag1 = lag(rain,1),
-         rain_lag2 = lag(rain,2),
-         rain_lag3 = lag(rain,3),
-         rain_lag4 = lag(rain,4),
-         rain_lag5 = lag(rain,5),
-         rain_lag6 = lag(rain,6),
-         rain_lag7 = lag(rain,7),
-         rain_lag8 = lag(rain,8),
-         rain_lag9 = lag(rain,9),
-         rain_lag10 = lag(rain,10),
-         rain_lag11 = lag(rain,11),
-         rain_lag12 = lag(rain,12),
-         rain_lag13 = lag(rain,13),
-         rain_lag14 = lag(rain,14),
-         t=row_number(),
-         sin365= sin(2*pi*t/365)
-         )
-mod1 <- glm(N_exposures ~  rain+ rain_lag1 + rain_lag2 + rain_lag3 + rain_lag4 + rain_lag5 + rain_lag6 + rain_lag7 + rain_lag8 + rain_lag9 + rain_lag10 +rain_lag11 + rain_lag12 + rain_lag13 + rain_lag14, data=model_df, family='poisson')
-summary(mod1)
-
-coefs_rain <- coef(mod1)[-c(1)] 
-plot(coefs_rain)
-plot(cumsum(coefs_rain))
-
-```
-
-
-Distribution to estimate the time between exposure and symptom onset. It's bounded at 20 days which is about the uppermost end.
-```{r}
-x <- seq(0, 20, by=1)
-delay_dist = dgamma(x, shape = 4.96, scale = 1.27, log = FALSE)
-plot(delay_dist, type = 'l')
-
-#rmultinom(1,100,delay_dist)
-```
-Take random draws from a multinomial, based on N exosures on that day and the delay distribution to determine how many cases that were exposed on date t have symptom onset with a delay of d, with d{1:21}
-
-```{r}
-set.seed(1234)
-dist_data <- t(sapply(df1$N_exposures, function(x) rmultinom(1,x,delay_dist)))
-
-df2 <- cbind.data.frame('dates'=df1$dates, dist_data)
-
-# Reshape the date into long format, determine the symptom onset date based on exposure date + delay, then sum by symptom onset date to get 'observed' time series
-
-observed_ts <- melt(df2, id.vars='dates') %>%
-  rename(exposure_date=dates) %>%
-  mutate(delay = as.numeric(as.character(variable)),
-         symptom_date= exposure_date + delay - 1) %>%
-  group_by(symptom_date) %>%
-  summarize(N_cases=sum(value))
-
-
-observed_ts <- merge(observed_ts, df1, by.x='symptom_date', by.y='dates')
-```
-
-Compare the time series of exposure and time series of cases
-```{r, fig.width=6, fig.height=3}
-par(mfrow=c(1,1))
-
-plot(observed_ts$symptom_date, observed_ts$N_exposures, type='l', main='N exposures', bty='l')
-  
-points(observed_ts$symptom_date,observed_ts$N_cases, type='l', main="N cases based on sympom onset", bty='l',col='red')
-
-
-ccf( observed_ts$N_cases,observed_ts$N_exposures,)
-```
-
-OK, now we can try to go backwards, let's reconstruct the exposure time series based on the case time series. related to deconvolution approach of Lipsitch https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2796142/
-
-- lambda is the mean of the observed cases, based on symptom onset
-- Delta is the reporting triangle that links observed time series (lambda) and latent time series (epsilon)
-
-- epsilon follows an AR(1), which captures autocorrelation in the data; This is a base model with no explanatory variables. Epsilon could be a function of weather variables, etc 
-
-
-Intuition for dirichlet prior. Looks like 'scale10' might be a reasonable level of information
-```{r}
-delay_dist_scale1 <- delay_dist/max(delay_dist)*1
-delay_dist_scale10 <- delay_dist/max(delay_dist)*10
-delay_dist_scale100 <- delay_dist/max(delay_dist)*100
-delay_dist_scale1000 <- delay_dist/max(delay_dist)*1000
-
-test1 <- t(rdirichlet(100, delay_dist_scale1))
-test10 <- t(rdirichlet(100, delay_dist_scale10))
-test100 <- t(rdirichlet(100, delay_dist_scale100))
-test1000 <- t(rdirichlet(100, delay_dist_scale1000))
-
-par(mfrow=c(2,2))
-matplot(test1, type='l')
-matplot(test10, type='l')
-matplot(test100, type='l')
-matplot(test1000, type='l')
-
-```
-
-
-lambda ~ epsilon is distributed lag model that links unobserved exposure time series and observed case time series.
 
 ```{r}
 model_string <- "
 model{
-for(t in 32:N_times){ #22 lag from linking epsilon to lambda, and 10 lag from linking rainfall to epsilon
+for(t in 1:N_times){ 
   N_cases[t] ~ dpois(lambda[t])
   
-  lambda[t] <- epsilon[t]*delay_est[1] + 
-               epsilon[t- 1 ]*delay_est[2] + 
-               epsilon[t- 2 ]*delay_est[3] +
-               epsilon[t- 3 ]*delay_est[4] + 
-               epsilon[t- 4 ]*delay_est[5] +
-               epsilon[t- 5 ]*delay_est[6] + 
-               epsilon[t- 6 ]*delay_est[7] +
-               epsilon[t- 7 ]*delay_est[8] + 
-               epsilon[t- 8 ]*delay_est[9] +
-               epsilon[t- 9 ]*delay_est[10] + 
-               epsilon[t- 10 ]*delay_est[11] +
-               epsilon[t- 11 ]*delay_est[12] + 
-               epsilon[t- 12 ]*delay_est[13] +
-               epsilon[t- 13 ]*delay_est[14] + 
-               epsilon[t- 14 ]*delay_est[15] +
-               epsilon[t- 15 ]*delay_est[16] + 
-               epsilon[t- 16 ]*delay_est[17] +
-               epsilon[t- 17 ]*delay_est[18] +
-               epsilon[t- 18 ]*delay_est[19] +
-               epsilon[t- 19 ]*delay_est[20] +
-               epsilon[t- 20 ]*delay_est[21]
+  log(lambda[t]) <- int  +  alpha[t] +  month.mat %*% beta  + log_acm_noj
 
 } 
-  for(t in 10:N_times){
-      epsilon[t] <- exp(int + alpha[t] + rain[t]*beta[1] +  rain[t-1]*beta[2]  +   rain[t-2]*beta[3]
-       +  rain[t-3]*beta[4] +  rain[t-4]*beta[5] +  rain[t-5]*beta[6] +  rain[t-6]*beta[7] +  rain[t-7]*beta[8]
-        +  rain[t-8]*beta[9] +  rain[t-9]*beta[10])
- }
+  
 
   int ~ dnorm(0, 1e-4)
- alpha[1] ~ dnorm(0, (1-rho2^2)/tau2.alpha)
+  
+  for( t in 1: N.pre.times){
+  alpha[t] = 0
+  }
+  
+ alpha[(N.pre.times+1)] ~ dnorm(0, (1-rho2^2)/tau2.alpha)
 
- for( t in 2:N_times ){
+ for( t in (N.pre.times+1):N_times ){
   alpha[t] ~ dnorm(rho2*alpha[t-1],tau2.alpha)
  }
  
- beta[1] ~ dnorm(0,(1-rho3^2)/tau3.beta)
- for(i in 2:10){
-  beta[i] ~ dnorm(rho3*beta[i-1], tau3.beta)
-
+ for(k in 1:11){
+  beta[k] ~ dnorm(0,1e-4)
  }
 
     tau2.alpha ~ dgamma(0.01,0.01)
-    tau3.beta ~ dgamma(0.01,0.01)
 
     rho2 ~ dunif (-1,1)
-    rho3 ~ dunif (-1,1)
-
-   delay_est ~ ddirch(delay_dist_scale1000) #use values from literature as priors for the dirichlet
 
 }
 "
@@ -246,14 +91,13 @@ model_jags<-jags.model(model_spec,
                        inits=list(inits1,inits2, inits3),
                        data=list('N_cases'=observed_ts$N_cases,
                                  'N_times'=365, #could use whole dataset but would take a long time
-                                                       'delay_dist_scale1000'=delay_dist_scale1000,
-                                 'rain'=rain_df$rain1
+                                  'monthmat'=month.mat
                                     ),
                        n.adapt=10000, 
                        n.chains=3)
 
 
-params<-c('lambda', 'alpha', 'beta','delay_est','epsilon', 'rho2', 'rho3')
+params<-c('lambda', 'alpha', 'beta','epsilon', 'rho2')
 
 ##############################################
 #Posterior Sampling
