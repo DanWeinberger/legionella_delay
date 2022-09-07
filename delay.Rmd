@@ -61,7 +61,7 @@ df1  <- cbind.data.frame('dates'=seq.Date(from=as.Date('2012-01-01'), length.out
 df1 <- df1 %>%
   mutate(t=row_number(), 
          sin1= 2*sin(2*pi*t/365),
-         N_exposures = rpois(length(dates), exp(1 + 0.3*sin1 + rnorm(length(dates),0,0.75) + rain_composite*0.5 ) ) )
+         N_exposures = rpois(length(dates), exp(1 + 0.3*sin1 + rnorm(length(dates),0,0.1) + rain_composite*0.1 ) ) )
 
 plot(df1$N_exposures)
 ```
