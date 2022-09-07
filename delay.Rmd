@@ -61,7 +61,7 @@ df1  <- cbind.data.frame('dates'=seq.Date(from=as.Date('2012-01-01'), length.out
 df1 <- df1 %>%
   mutate(t=row_number(), 
          sin1= 2*sin(2*pi*t/365),
-         N_exposures = rpois(length(dates), exp(1 + 0.3*sin1 + rnorm(length(dates),0,0.1) + rain_composite*0.1 ) ) )
+         N_exposures = rpois(length(dates), exp(5 + 0.3*sin1 + rnorm(length(dates),0,1e-4) + rain_composite*0.5 ) ) )
 
 plot(df1$N_exposures)
 ```
@@ -87,12 +87,16 @@ model_df <- cbind.data.frame(df1,'rain'=rain_df[,1]) %>%
          t=row_number(),
          sin365= sin(2*pi*t/365)
          )
-mod1 <- glm(N_exposures ~  rain+ rain_lag1 + rain_lag2 + rain_lag3 + rain_lag4 + rain_lag5 + rain_lag6 + rain_lag7 + rain_lag8 + rain_lag9 + rain_lag10 +rain_lag11 + rain_lag12 + rain_lag13 + rain_lag14, data=model_df, family='poisson')
+mod1 <- glm(N_exposures ~ sin365 + rain+ rain_lag1 + rain_lag2 + rain_lag3 + rain_lag4 + rain_lag5 + rain_lag6 + rain_lag7 + rain_lag8 + rain_lag9 + rain_lag10 +rain_lag11 + rain_lag12 + rain_lag13 + rain_lag14, data=model_df, family='poisson')
 summary(mod1)
 
-coefs_rain <- coef(mod1)[-c(1)] 
+coefs_rain <- coef(mod1)[-c(1:2)] 
 plot(coefs_rain)
 plot(cumsum(coefs_rain))
+
+
+plot(coefs_rain[1:10],rain_weights)
+
 
 ```
 
