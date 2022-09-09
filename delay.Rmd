@@ -214,13 +214,6 @@ for(t in 32:N_times){ #22 lag from linking epsilon to lambda, and 10 lag from li
    int ~ dnorm(0, 1e-4)
    
    
- # alpha[1] ~ dnorm(0, (1-rho2^2)*tau2.alpha)
- # 
- # for( t in 2:N_times ){
- #  alpha[t] ~ dnorm(rho2*alpha[t-1],tau2.alpha)
- # }
-
- 
  beta[1] ~ dnorm(0,(1-rho3^2)*tau3.beta)
  for(i in 2:10){
   beta[i] ~ dnorm(rho3*beta[i-1], tau3.beta) #AR(1) model
