@@ -206,7 +206,7 @@ for(t in 32:N_times){ #22 lag from linking epsilon to lambda, and 10 lag from li
   for(t in 10:N_times){
       epsilon[t] <- exp(int +  rain[t]*beta[1] +  rain[t-1]*beta[2]  +   rain[t-2]*beta[3]
        +  rain[t-3]*beta[4] +  rain[t-4]*beta[5] +  rain[t-5]*beta[6] +  rain[t-6]*beta[7] +  rain[t-7]*beta[8]
-        +  rain[t-8]*beta[9] +  rain[t-9]*beta[10] )  #+ phi[t]) #+ alpha[t] )
+        +  rain[t-8]*beta[9] +  rain[t-9]*beta[10]  )  #+ phi[t]) #+ alpha[t] )
         
          #phi[t] ~ dnorm(0, tau.phi)
  }
@@ -219,7 +219,7 @@ for(t in 32:N_times){ #22 lag from linking epsilon to lambda, and 10 lag from li
  # for( t in 2:N_times ){
  #  alpha[t] ~ dnorm(rho2*alpha[t-1],tau2.alpha)
  # }
- # 
+
  
  beta[1] ~ dnorm(0,(1-rho3^2)*tau3.beta)
  for(i in 2:10){
