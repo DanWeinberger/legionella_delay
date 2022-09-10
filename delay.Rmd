@@ -223,11 +223,11 @@ for(t in 32:N_times){ #22 lag from linking epsilon to lambda, and 10 lag from li
   beta[i] ~ dnorm(rho3*beta[i-1], tau3.beta) #AR(1) model
 }
 
-    #tau2.beta ~ dgamma(3,2)
+    tau2.beta ~ dgamma(3,2)
 
     tau3.beta ~ dgamma(3,2)
     
-   # rho2 ~ dunif (-1,1)
+    rho2 ~ dunif (-1,1)
     rho3 ~ dunif (-1,1)
 
   # delay_est ~ ddirch(delay_dist_scale1000) #use values from literature as priors for the dirichlet
@@ -256,11 +256,11 @@ model_jags<-jags.model(model_spec,
                                                        'delay_dist'=delay_dist,
                                  'rain'=rain_df$rain1
                                     ),
-                       n.adapt=10000, 
+                       n.adapt=100000, 
                        n.chains=3)
 
 
-params<-c('lambda', 'beta','delay_est','epsilon', 'rho3','tau3.beta', 'int')
+params<-c('lambda', 'beta','epsilon', 'rho3','tau3.beta', 'int')
 
 ##############################################
 #Posterior Sampling
