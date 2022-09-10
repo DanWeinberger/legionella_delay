@@ -179,56 +179,58 @@ model{
 for(t in 32:N_times){ #22 lag from linking epsilon to lambda, and 10 lag from linking rainfall to epsilon
   N_cases[t] ~ dpois(lambda[t])
   
-  lambda[t] <- (epsilon[t]*delay_est[1] + 
-               epsilon[t- 1 ]*delay_est[2] + 
-               epsilon[t- 2 ]*delay_est[3] +
-               epsilon[t- 3 ]*delay_est[4] + 
-               epsilon[t- 4 ]*delay_est[5] +
-               epsilon[t- 5 ]*delay_est[6] + 
-               epsilon[t- 6 ]*delay_est[7] +
-               epsilon[t- 7 ]*delay_est[8] + 
-               epsilon[t- 8 ]*delay_est[9] +
-               epsilon[t- 9 ]*delay_est[10] + 
-               epsilon[t- 10 ]*delay_est[11] +
-               epsilon[t- 11 ]*delay_est[12] + 
-               epsilon[t- 12 ]*delay_est[13] +
-               epsilon[t- 13 ]*delay_est[14] + 
-               epsilon[t- 14 ]*delay_est[15] +
-               epsilon[t- 15 ]*delay_est[16] + 
-               epsilon[t- 16 ]*delay_est[17] +
-               epsilon[t- 17 ]*delay_est[18] +
-               epsilon[t- 18 ]*delay_est[19] +
-               epsilon[t- 19 ]*delay_est[20] +
-               epsilon[t- 20 ]*delay_est[21] )
+  lambda[t] <- (epsilon[t]*delay_dist[1] + 
+               epsilon[t- 1 ]*delay_dist[2] + 
+               epsilon[t- 2 ]*delay_dist[3] +
+               epsilon[t- 3 ]*delay_dist[4] + 
+               epsilon[t- 4 ]*delay_dist[5] +
+               epsilon[t- 5 ]*delay_dist[6] + 
+               epsilon[t- 6 ]*delay_dist[7] +
+               epsilon[t- 7 ]*delay_dist[8] + 
+               epsilon[t- 8 ]*delay_dist[9] +
+               epsilon[t- 9 ]*delay_dist[10] + 
+               epsilon[t- 10 ]*delay_dist[11] +
+               epsilon[t- 11 ]*delay_dist[12] + 
+               epsilon[t- 12 ]*delay_dist[13] +
+               epsilon[t- 13 ]*delay_dist[14] + 
+               epsilon[t- 14 ]*delay_dist[15] +
+               epsilon[t- 15 ]*delay_dist[16] + 
+               epsilon[t- 16 ]*delay_dist[17] +
+               epsilon[t- 17 ]*delay_dist[18] +
+               epsilon[t- 18 ]*delay_dist[19] +
+               epsilon[t- 19 ]*delay_dist[20] +
+               epsilon[t- 20 ]*delay_dist[21] )
             
 
 } 
   for(t in 10:N_times){
       epsilon[t] <- exp(int +  rain[t]*beta[1] +  rain[t-1]*beta[2]  +   rain[t-2]*beta[3]
        +  rain[t-3]*beta[4] +  rain[t-4]*beta[5] +  rain[t-5]*beta[6] +  rain[t-6]*beta[7] +  rain[t-7]*beta[8]
-        +  rain[t-8]*beta[9] +  rain[t-9]*beta[10]  )  #+ phi[t]) #+ alpha[t] )
+        +  rain[t-8]*beta[9] +  rain[t-9]*beta[10]  )  
         
-         #phi[t] ~ dnorm(0, tau.phi)
- }
+  }
 
    int ~ dnorm(0, 1e-4)
    
-   
+ 
+ #  alpha[1] ~ dnorm(0,(1-rho2^2)*tau2.beta)
+ # for(i in 2:N_times){
+ #  alpha[i] ~ dnorm(rho2*alpha[i-1], tau2.beta) #AR(1) model
+ # }
+
  beta[1] ~ dnorm(0,(1-rho3^2)*tau3.beta)
  for(i in 2:10){
   beta[i] ~ dnorm(rho3*beta[i-1], tau3.beta) #AR(1) model
 }
 
+    #tau2.beta ~ dgamma(3,2)
 
-    tau2.alpha ~ dgamma(0.01,0.01)
-    tau3.beta ~ dgamma(0.01,0.01)
+    tau3.beta ~ dgamma(3,2)
     
-    tau.phi ~ dgamma(0.01,0.01)
-
-    rho2 ~ dunif (-1,1)
+   # rho2 ~ dunif (-1,1)
     rho3 ~ dunif (-1,1)
 
-   delay_est ~ ddirch(delay_dist_scale1000) #use values from literature as priors for the dirichlet
+  # delay_est ~ ddirch(delay_dist_scale1000) #use values from literature as priors for the dirichlet
 
 }
 "
@@ -251,14 +253,14 @@ model_jags<-jags.model(model_spec,
                        inits=list(inits1,inits2, inits3),
                        data=list('N_cases'=observed_ts$N_cases,
                                  'N_times'=365, #could use whole dataset but would take a long time
-                                                       'delay_dist_scale1000'=delay_dist_scale1000,
+                                                       'delay_dist'=delay_dist,
                                  'rain'=rain_df$rain1
                                     ),
                        n.adapt=10000, 
                        n.chains=3)
 
 
-params<-c('lambda', 'alpha', 'beta','delay_est','epsilon', 'rho2', 'rho3')
+params<-c('lambda', 'beta','delay_est','epsilon', 'rho3','tau3.beta', 'int')
 
 ##############################################
 #Posterior Sampling
@@ -306,10 +308,15 @@ points(post_epsilon$index_t, post_epsilon$mean, type='l' ,col='red')
 points(post_lambda$index_t,post_lambda$mean, type='l' ,col='blue')
 
 str(posterior_samples.all)
+
+plot(posterior_samples.all[,"beta[1]"], type='l')
+plot(posterior_samples.all[,"int"], type='l')
+plot(posterior_samples.all[,"rho3"], type='l')
+
 ```
 
 ```{r}
-post_beta <- combined[grep('beta',names(post_means)),]
+post_beta <- combined[grep('beta[',names(post_means), fixed=T),]
 
 
  plot(cumsum(rain_weights), type='l')
@@ -322,7 +329,7 @@ points(post_beta$ucl*2, type='l', col='red', lty=3)
 
 #
 
-beta_samps <- posterior_samples.all[11000:15000,grep('beta',names(post_means))]
+beta_samps <- posterior_samples.all[0001:5000,grep('beta[',names(post_means), fixed=T)]
 matplot(t(beta_samps*2), type='l', ylim=c(-0.1, 0.3))
 points(rain_weights, type='l')
 
