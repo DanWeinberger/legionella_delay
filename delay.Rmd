@@ -256,7 +256,7 @@ model_jags<-jags.model(model_spec,
                                                        'delay_dist'=delay_dist,
                                  'rain'=rain_df$rain1
                                     ),
-                       n.adapt=100000, 
+                       n.adapt=10000, 
                        n.chains=3)
 
 
@@ -267,7 +267,7 @@ params<-c('lambda', 'beta','epsilon', 'rho3','tau3.beta', 'int')
 ##############################################
 posterior_samples<-coda.samples(model_jags, 
                                 params, 
-                                n.iter=10000)
+                                n.iter=50000)
 
 posterior_samples.all<-do.call(rbind,posterior_samples)
 #post1.summary<-summary(posterior_samples)
@@ -306,6 +306,9 @@ points(post_lambda$index_t,post_lambda$mean, type='l' ,col='blue')
 plot(df1$N_exposures[1:365], type='l')
 points(post_epsilon$index_t, post_epsilon$mean, type='l' ,col='red')
 points(post_lambda$index_t,post_lambda$mean, type='l' ,col='blue')
+
+saveRDS(posterior_samples.all,'./Results/posteriors.rds')
+```
 
 str(posterior_samples.all)
 
