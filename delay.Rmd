@@ -213,24 +213,15 @@ for(t in 32:N_times){ #22 lag from linking epsilon to lambda, and 10 lag from li
    int ~ dnorm(0, 1e-4)
    
  
- #  alpha[1] ~ dnorm(0,(1-rho2^2)*tau2.beta)
- # for(i in 2:N_times){
- #  alpha[i] ~ dnorm(rho2*alpha[i-1], tau2.beta) #AR(1) model
- # }
-
- beta[1] ~ dnorm(0,(1-rho3^2)*tau3.beta)
- for(i in 2:10){
-  beta[i] ~ dnorm(rho3*beta[i-1], tau3.beta) #AR(1) model
+ for(i in 1:10){
+  beta[i] ~ dnorm(0, tau3.beta) #AR(1) model
 }
 
     tau2.beta ~ dgamma(3,2)
 
     tau3.beta ~ dgamma(3,2)
     
-    rho2 ~ dunif (-1,1)
-    rho3 ~ dunif (-1,1)
-
-  # delay_est ~ ddirch(delay_dist_scale1000) #use values from literature as priors for the dirichlet
+    # delay_est ~ ddirch(delay_dist_scale1000) #use values from literature as priors for the dirichlet
 
 }
 "
@@ -310,6 +301,8 @@ points(post_lambda$index_t,post_lambda$mean, type='l' ,col='blue')
 str(posterior_samples.all)
 
 plot(posterior_samples.all[,"beta[1]"], type='l')
+plot(posterior_samples.all[,"beta[2]"], type='l')
+
 plot(posterior_samples.all[,"int"], type='l')
 plot(posterior_samples.all[,"rho3"], type='l')
 
