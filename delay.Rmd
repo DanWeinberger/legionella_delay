@@ -61,7 +61,7 @@ df1  <- cbind.data.frame('dates'=seq.Date(from=as.Date('2012-01-01'), length.out
 df1 <- df1 %>%
   mutate(t=row_number(), 
          sin1= 2*sin(2*pi*t/365),
-         N_exposures = rpois(length(dates), exp(5 + 0.3*sin1 + rnorm(length(dates),0,1e-4) + rain_composite*0.5 ) ) )
+         N_exposures = rpois(length(dates), exp(-3.5 + 0.3*sin1 + rain_composite*0.4 ) ) )
 
 plot(df1$N_exposures)
 ```
@@ -204,7 +204,7 @@ for(t in 32:N_times){ #22 lag from linking epsilon to lambda, and 10 lag from li
 
 } 
   for(t in 10:N_times){
-      epsilon[t] <- exp(int +  rain[t]*beta[1] +  rain[t-1]*beta[2]  +   rain[t-2]*beta[3]
+      epsilon[t] <- exp( int +  rain[t]*beta[1] +  rain[t-1]*beta[2]  +   rain[t-2]*beta[3]
        +  rain[t-3]*beta[4] +  rain[t-4]*beta[5] +  rain[t-5]*beta[6] +  rain[t-6]*beta[7] +  rain[t-7]*beta[8]
         +  rain[t-8]*beta[9] +  rain[t-9]*beta[10]  )  
         
@@ -212,11 +212,14 @@ for(t in 32:N_times){ #22 lag from linking epsilon to lambda, and 10 lag from li
 
    int ~ dnorm(0, 1e-4)
    
- beta[1] ~ dnorm(0,(1-rho3^2)*tau3.beta)
+ log.beta[1] ~ dnorm(0,(1-rho3^2)*tau3.beta)
  for(i in 2:10){
-  beta[i] ~ dnorm(rho3*beta[i-1], tau3.beta) #AR(1) model
-}
+  log.beta[i] ~ dnorm(rho3*beta[i-1], tau3.beta) #AR(1) model
+ }
 
+ for(i in 1:10){
+    beta[i] <- exp(log.beta[i])
+  }
     tau3.beta ~ dgamma(3,2)
     
     rho3 ~ dunif (-1,1)
@@ -256,7 +259,7 @@ params<-c('lambda', 'beta','epsilon', 'rho3','tau3.beta', 'int')
 ##############################################
 posterior_samples<-coda.samples(model_jags, 
                                 params, 
-                                n.iter=50000)
+                                n.iter=10000)
 
 posterior_samples.all<-do.call(rbind,posterior_samples)
 #post1.summary<-summary(posterior_samples)
