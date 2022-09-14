@@ -212,10 +212,14 @@ for(t in 32:N_times){ #22 lag from linking epsilon to lambda, and 10 lag from li
 
    int ~ dnorm(0, 1e-4)
    
- beta[1] ~ dnorm(0,(1-rho3^2)*tau3.beta)
+ log.beta[1] ~ dnorm(0,(1-rho3^2)*tau3.beta)
  for(i in 2:10){
-  beta[i] ~ dnorm(rho3*beta[i-1], tau3.beta) #AR(1) model
-}
+  log.beta[i] ~ dnorm(rho3*beta[i-1], tau3.beta) #AR(1) model
+ }
+
+ for(i in 1:10){
+    beta[i] <- exp(log.beta[i])
+  }
 
     tau3.beta ~ dgamma(3,2)
     
@@ -256,7 +260,7 @@ params<-c('lambda', 'beta','epsilon', 'rho3','tau3.beta', 'int')
 ##############################################
 posterior_samples<-coda.samples(model_jags, 
                                 params, 
-                                n.iter=50000)
+                                n.iter=10000)
 
 posterior_samples.all<-do.call(rbind,posterior_samples)
 #post1.summary<-summary(posterior_samples)
