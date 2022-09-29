@@ -61,7 +61,7 @@ df1  <- cbind.data.frame('dates'=seq.Date(from=as.Date('2012-01-01'), length.out
 df1 <- df1 %>%
   mutate(t=row_number(), 
          sin1= 2*sin(2*pi*t/365),
-         N_exposures = rpois(length(dates), exp(5 + 0.3*sin1 + rnorm(length(dates),0,1e-4) + rain_composite*0.5 ) ) )
+         N_exposures = rpois(length(dates), exp(-1.5 + 0.3*sin1 + rnorm(length(dates),0,1e-4) + rain_composite*0.1 ) ) )
 
 plot(df1$N_exposures)
 ```
@@ -319,17 +319,17 @@ post_beta <- combined[grep('beta[',names(post_means), fixed=T),]
 
 
  plot(cumsum(rain_weights), type='l')
- points(cumsum(post_beta$mean*2), type='l', col='red')
+ points(cumsum(post_beta$mean*10), type='l', col='red')
 
 plot(rain_weights, type='l')
-points(post_beta$mean*2, type='l', col='red')
-points(post_beta$lcl*2, type='l', col='red', lty=3)
-points(post_beta$ucl*2, type='l', col='red', lty=3)
+points(post_beta$mean*10, type='l', col='red')
+points(post_beta$lcl*10, type='l', col='red', lty=3)
+points(post_beta$ucl*10, type='l', col='red', lty=3)
 
 #
 
 beta_samps <- posterior_samples.all[0001:5000,grep('beta[',names(post_means), fixed=T)]
-matplot(t(beta_samps*2), type='l', ylim=c(-0.1, 0.3))
+matplot(t(beta_samps*10), type='l', ylim=c(-0.1, 0.3))
 points(rain_weights, type='l')
 
 ```
