@@ -40,7 +40,7 @@ So here I'm assigning rain_weights to primarily days 6 and 7 to reflect what's s
 ``` {r}
 # weather.d <- weather.d[,1:10]
 # subset to 2017 
-weather.d$rain0 = ifelse(weather.d$rain0 > 0.25, 1, 0)
+#weather.d$rain0 = ifelse(weather.d$rain0 > 0.25, 1, 0)
 
 w.2017 = weather.d %>%
   mutate( rain1 = lag(rain0,1),
@@ -57,27 +57,33 @@ w.2017 = weather.d %>%
          rain12 = lag(rain0,12),
          rain13 = lag(rain0,13),
          rain14 = lag(rain0,14),
+         rain15 = lag(rain0,15),
+         rain16 = lag(rain0,16),
+         rain17 = lag(rain0,17),
+         rain18 = lag(rain0,18),
+         rain19 = lag(rain0,19),
+         rain20 = lag(rain0,20),
           year=year(dates)
           ) %>%
   filter(year %in% c(2012, 2013, 2014, 2015, 2016,2017,2018)) %>%
   select(dates,starts_with('rain')) %>%
-  filter(!is.na(rain14))
+  filter(!is.na(rain20))
 
 
 
-rain_weights <- c(0,0, 0, 0, 0.1,0.2,0.5,0.2,0,0,0,0,0,0,0) 
+rain_weights <- c(0,0, 1, 0, 0.0,0.0,0.0,0.0,0,0,0,0,0,0,0,0,0,0,0,0,0) 
 rain_composite = as.matrix(w.2017[,-1]) %*% rain_weights
 
 set.seed(123)
 
-rain_comp_weight = 1 # this helps model fitting below. 
+rain_comp_weight = 2 # this helps model fitting below. 
 
 df1  <- w.2017 %>%
   mutate(t=row_number(),
          sin1= 2*sin(2*pi*t/365),
          cos1= 2*cos(2*pi*t/365),
 
-         N_exposures = rpois(length(dates), exp(-2 + 0.3*sin1 + rain_composite*rain_comp_weight ) ) 
+         N_exposures = rpois(length(dates), ( exp(-2 + 0.03*sin1) + rain_composite*rain_comp_weight ) ) 
          )
 
 
@@ -96,19 +102,20 @@ Now use the simulated data in a basic dist lag model of association between expo
 # when I use real weather data it seems like it's off by one day each time? 
 
 
-mod1 <- glm(N_exposures ~  sin1 +cos1 +rain0 + rain1 + rain2 + rain3 + rain4 + rain5 + rain6 + rain7 + rain8 + rain9 , data=df1, family='poisson')
+mod1 <- glm(N_exposures ~ rain0 + rain1 + rain2 + rain3 + rain4 + rain5 + rain6 + rain7 + rain8 + rain9 , data=df1, family=gaussian(link='identity'))
+
 summary(mod1)
 #coefs_rain <- coef(mod1)[-c(1,2,3)]
 coefs_rain <- coef(mod1)[grep('rain',names(coef(mod1)))] 
 
 plot(coefs_rain)
-points(rain_weights, col='red')
+points(rain_comp_weight*rain_weights, col='red')
 
 plot(cumsum(coefs_rain))
-points(cumsum(rain_weights) ,col='red')
+points(cumsum(rain_comp_weight*rain_weights) ,col='red')
 
 
-plot(coefs_rain[1:10],rain_weights)
+plot(coefs_rain,rain_comp_weight*rain_weights[1:10])
 
 
 
@@ -119,8 +126,12 @@ Test out JAGS model using the full case dataset then
 ```{r}
 x <- seq(0, 20, by=1)
 delay_dist = dgamma(x, shape = 4.96, scale = 1.27, log = FALSE)
+delay_dist <- delay_dist/sum(delay_dist)
 plot(delay_dist, type = 'l')
 #rmultinom(1,100,delay_dist)
+
+r1 <- rgamma(1000,shape = 4.96, scale = 1.27)
+
 ```
 
 
@@ -152,6 +163,56 @@ observed_ts$cos1 = cos(2*pi*observed_ts$t/365)
 plot(observed_ts$symptom_date, observed_ts$N_cases, type='l', main='N', bty='l')
 
 ```
+
+## Simple model of rainfall and reported cases
+take rainfall data, and combine together with the latent distribution, use lags of this on case data. This makes it so that we don't need to explicitly construct the latent exposure variable
+
+The coefficient
+```{r}
+
+rain_lags <- df1 %>%
+  select(starts_with('rain'))
+
+observed_ts$latent_rf <- as.matrix(rain_lags) %*% delay_dist #latent rainfall
+
+observed_ts <- observed_ts %>%
+  mutate( latent_rf1 = lag(latent_rf,1),
+          latent_rf2 = lag(latent_rf,2),
+          latent_rf3 = lag(latent_rf,3),
+          latent_rf4 = lag(latent_rf,4),
+          latent_rf5 = lag(latent_rf,5),
+          latent_rf6 = lag(latent_rf,6),
+          latent_rf7 = lag(latent_rf,7),
+          latent_rf8 = lag(latent_rf,8),
+          latent_rf9 = lag(latent_rf,9),
+          latent_rf10 = lag(latent_rf,10),
+          latent_rf11 = lag(latent_rf,11),
+          latent_rf12 = lag(latent_rf,12),
+          latent_rf13 = lag(latent_rf,13),
+          latent_rf14 = lag(latent_rf,14),
+          latent_rf15 = lag(latent_rf,15),
+          latent_rf16 = lag(latent_rf,16),
+          latent_rf17 = lag(latent_rf,17),
+          latent_rf18 = lag(latent_rf,18),
+          
+          )
+
+mod2 <- glm(N_cases  ~ latent_rf + latent_rf1 + latent_rf2      , data=observed_ts, family=poisson(link='identity'))
+summary(mod2)
+
+coef2 <- coefficients(mod2)[-1]
+
+plot(coef2)
+```
+
+
+Can skip this and use a simpler regression by:
+-create a matrix of rainfall with lags (lag0, lag1, lag2...)
+-Multiply this by the clinical delay distribution to relate exposures to cases
+-Then evaluate lags of this new rainfall variable with observed cases
+-I think this is equivalent to what we have below IF you have an additive model
+
+
 
 AR component: 
  log.beta[1] ~ dnorm(0,(1-rho3^2)*tau3.beta)
@@ -231,7 +292,7 @@ model_jags<-jags.model(model_spec,
                        inits=list(inits1,inits2, inits3),
                        data=list('N_cases'= observed_ts$N_cases,
                                   # 'N_times'= 355, #could use whole dataset but would take a long time
-                                  'N_times'= 1000#nrow(observed_ts), #could use whole dataset but would take a long time
+                                  'N_times'= 1000, #nrow(observed_ts), #could use whole dataset but would take a long time
                                                        'delay_dist'=delay_dist,
                                  'sin365' = observed_ts$sin1,
                                  'cos365' = observed_ts$cos1,
