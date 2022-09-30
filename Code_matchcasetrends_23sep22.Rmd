@@ -29,6 +29,9 @@ weather.d = read.csv("./Data/CONFIDENTIAL/observed_ts.csv") %>%
   mutate(dates = as.Date(symptom_date, '%m/%d/%Y')) %>%
   select(dates, rain0)
 
+weather.d <- read_csv("Data/weather_7years.csv")
+
+
 ```
 
 once we get to half an inch per day then it's easier to tease apart the 6-8 day lag from the rain1 and two day lag 
@@ -182,6 +185,7 @@ LogLike <- function(dat, par, X, delay_dist) {
   beta <- exp(par)
   beta[2:3] <- par[2:3]
   
+  # glm (epsilon ~ 1 + sin1 + cos1 + rain0 +...)
   epsilon <-  X %*% beta  #linear  
   
   epsilon.mat <- as.data.frame(epsilon) %>%
@@ -236,7 +240,9 @@ names(parms) <- colnames(Xvars)
 
 
 parms.rain <-exp(parms[grep('rain', names(parms))])
-plot(parms.rain)
+parms.rain
+
+# plot(parms.rain)
 
 ```
 
