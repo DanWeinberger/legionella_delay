@@ -43,7 +43,8 @@ So here I'm assigning rain_weights to primarily days 6 and 7 to reflect what's s
 #weather.d$rain0 = ifelse(weather.d$rain0 > 0.25, 1, 0)
 
 w.2017 = weather.d %>%
-  mutate( rain1 = lag(rain0,1),
+  mutate( rain0 = rain0/sd(rain0),
+          rain1 = lag(rain0,1),
           rain2 = lag(rain0,2),
           rain3 = lag(rain0,3),
           rain4 = lag(rain0,4),
