@@ -406,11 +406,6 @@ points(delay_dist, col='red', lwd=2, lty=2, type='l')
 
 
 
-
-
-
-
-
 ```{r}
 
 
@@ -426,8 +421,10 @@ delay_dist <- delay_dist/sum(delay_dist)
 
 LogLike <- function(dat, par, X, delay_dist) {
 
-  #beta <- exp(par)
-  epsilon <-  exp(X %*% par)  #linear  
+  beta <- exp(par)
+  beta[2:3] <- par[2:3]
+  
+  epsilon <-  X %*% beta  #linear  
   
   epsilon.mat <- as.data.frame(epsilon) %>%
      mutate(epsilon1=lag(epsilon,1),
@@ -459,15 +456,15 @@ LogLike <- function(dat, par, X, delay_dist) {
     
     if(min(lambda, na.rm=T) >0){
        LL <- -sum(dpois(dat$N_cases[-c(1:21)], lambda[-c(1:21)], log = TRUE))
-    }else{
-      LL <- -99999999 
-    }
+     }else{
+       LL <- 99999999 
+     }
     return(LL)
 }
 
 par <- rnorm(ncol(Xvars),0,0.1)
 
-m.like = optim(par = par, fn = LogLike, dat = observed_ts, X=Xvars, delay_dist=delay_dist, method='SANN')
+m.like = optim(par = par, fn = LogLike, dat = observed_ts, X=Xvars, delay_dist=delay_dist, method='BFGS')
 m.like
 
 if(m.like$convergence==0){
@@ -480,7 +477,7 @@ parms <- m.like$par
 names(parms) <- colnames(Xvars)
 
 
-parms.rain <-parms[grep('rain', names(parms))]
+parms.rain <-exp(parms[grep('rain', names(parms))])
 plot(parms.rain)
 
 ```
