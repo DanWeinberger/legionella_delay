@@ -204,27 +204,30 @@ for(t in 32:N_times){ #22 lag from linking epsilon to lambda, and 10 lag from li
 
 } 
   for(t in 10:N_times){
-      epsilon[t] <- exp(int +  rain[t]*beta[1] +  rain[t-1]*beta[2]  +   rain[t-2]*beta[3]
+      epsilon[t] <- (int +  rain[t]*beta[1] +  rain[t-1]*beta[2]  +   rain[t-2]*beta[3]
        +  rain[t-3]*beta[4] +  rain[t-4]*beta[5] +  rain[t-5]*beta[6] +  rain[t-6]*beta[7] +  rain[t-7]*beta[8]
-        +  rain[t-8]*beta[9] +  rain[t-9]*beta[10]  )  
+        +  rain[t-8]*beta[9] +  rain[t-9]*beta[10] + delta[1]*sin1[t] + delta[2]*cos1[t] )  
         
   }
 
-   int ~ dnorm(0, 1e-4)
+   log.int ~ dnorm(0, 1e-4)
+   int <- exp(log.int)
    
- log.beta[1] ~ dnorm(0,(1-rho3^2)*tau3.beta)
- for(i in 2:10){
-  log.beta[i] ~ dnorm(rho3*beta[i-1], tau3.beta) #AR(1) model
+   
+ for(i in 1:10){
+  log.beta[i] ~ dnorm(0, tau3.beta) #shrinkage prior
  }
 
  for(i in 1:10){
     beta[i] <- exp(log.beta[i])
+ }
+  
+   for(k in 1:2){
+    delta[k] <- dnorm(0,1e-4)
   }
 
-    tau3.beta ~ dgamma(3,2)
+    tau3.beta ~ dgamma(0.01,0.01)
     
-    rho3 ~ dunif (-1,1)
-
 }
 "
 
