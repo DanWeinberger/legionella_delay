@@ -1,0 +1,269 @@
+---
+title: "Rainfall_extremes"
+output: html_document
+date: "2022-09-30"
+---
+
+```{r}
+library("lubridate")
+library("stringr")
+library("reshape2")
+library('data.table')
+library('readr')
+library(zoo)
+```
+
+
+
+Divide Connecticut into 4 regions 
+```{r}
+CT.towns = readOGR( dsn=path.expand('~/Documents/IncubationPeriod_Analysis/Town Boundary Index Map'), layer= 'geo_export_d7337770-08c3-42da-ac3d-67051c9d5f93')
+CT.towns = CT.towns@data # 168 towns 
+
+region4 = c('Greenwich','Stamford','New Canaan','Darien','Norwalk','Wilton','Westport','Fairfiel','Redding','Bridgeport','Trumbull','Easton','Shelton',
+            'Stratford','Monroe','Ridgefield')
+region1 = c('Danbury', 'New Fairfield','Sherman','Kent','Sharon','Salisbury','North Canaan','Canaan','Cornwall','Warren','Washington','New Milford',
+            'Bridgewater','Roxbury','Brookfield','Newton','Bethel','Southbury','Woodbury','Bethlehem','Morris','Litchfield','Goshen','Norfolk',
+            'Torrington','Harwinton','Thomaston','Watertown','Middlebury','Oxford','Seymour','Beacon Falls','Naugatuck','Waterbury','Plymouth','Wolcott',
+            'Prospect')
+region3 = c('Milford','Orange','West Haven','New Haven','East Haven','Derby','Ansonia','Woodbridge','Bethany','Hamden','North Haven','Branford','North Branford',
+            'Wallingford','Guilford','Madison','Killingworth','Clinton','Westbrook','Old Saybrook', 'Old Lyme','Lyme','Essex','Deep River','Chester','East Lyme',
+            'Waterford','New London','Groton','Ledyard','Stonington','North Stonington','Meriden','Cheshire','Southington')
+
+# All else is Region2 
+
+CT.towns$region = ifelse(CT.towns$town %in% region4, 4,
+                         ifelse(CT.towns$town %in% region1, 1,
+                                ifelse(CT.towns$town %in% region3, 3, 2)))
+
+# Need to assign stations to specific towns/regions. 
+
+CT.towns$STATION = ifelse(CT.towns$town == 'Oxford', 	72502964707,
+                          ifelse(CT.towns$town == 'New Haven', 72504514758,
+                                 ifelse(CT.towns$town == 'Meriden', 72502754788,
+                                        ifelse(CT.towns$town == 'Chester', 72054500169,
+                                               ifelse(CT.towns$town == 'Stratford', 72504094702,
+                                                      ifelse(CT.towns$town == 'Hartford', 72508714752,
+                                                             ifelse(CT.towns$town == 'Windham', 72508454767,
+                                                                    ifelse(CT.towns$town == 'Groton', 72504614707,
+                                                                           ifelse(CT.towns$town == 'Danbury',	72508654734,
+                                                                                  ifelse(CT.towns$town == 'Windsor Locks', 72508014740, 99))))))))))
+
+
+```
+
+
+
+
+```{r}
+for (Year in 2011:2022){
+  file <- read.csv(paste0("~/Documents/NCD_Weather_Data/Raw Data/NCD_Download_",Year,".csv"), sep=",")
+  assign(x=str_c("w.",Year),value=file,envir=.GlobalEnv)
+  print(Year)
+}
+# 
+dat = list(w.2011,w.2012,w.2013,w.2014,w.2015,w.2016,w.2017,w.2018,w.2019,w.2020,w.2021,w.2022)
+dat.mean = list()
+dat.mean.hourly = list()
+dat.mean.hourly.station = list()
+dat.max.avg = list()
+dat.max.state = list()
+weather.agg = list()
+weather.agg.new = list()
+weather.agg.new2 = list()
+dat.precip.mean.hour = list()
+dat.precip.sum.day = list()
+dat.precip.mean.hour.region = list()
+dat.precip.sum.day.region = list()
+dat.dailies = list()
+dat.dailies.mean = list()
+DailyPrecipitation = list()
+dat.precip.sd.hour = list()
+dat.precip.max.hour = list()
+dat.precip.sd.hour.region = list()
+dat.precip.max.hourly.region = list()
+ dat.precip.max.hourly.region1 = list()
+ dat.precip.max.hourly.rainfall.state = list()
+ 
+for (i in 1:12){
+  
+ #  i = 1
+  dat[[i]] = dat[[i]][, c('STATION','DATE','HourlyPrecipitation','HourlyRelativeHumidity','HourlySeaLevelPressure', 'HourlyStationPressure',
+                          'HourlyVisibility', 'HourlyWindDirection', 'HourlyWindGustSpeed', 'HourlyWindSpeed','HourlyDryBulbTemperature',
+                          'DailyAverageDryBulbTemperature', 'DailyAverageWindSpeed','DailyAverageStationPressure', 'DailyAverageRelativeHumidity',
+                          'DailyMaximumDryBulbTemperature', 'DailyMinimumDryBulbTemperature', 'DailyPeakWindSpeed', 'DailyPeakWindDirection','DailyPrecipitation',
+                          'DailyAverageSeaLevelPressure', 'DailyAverageWetBulbTemperature', 'BackupElements', 'HourlyPresentWeatherType')]
+  
+  
+  # merge in region level info 
+  dat[[i]] = merge(dat[[i]], CT.towns, by = 'STATION', all.x = T)
+
+  # dat[[i]] = dat[[i]][c(dat[[i]]$DailyPrecipitation != ''),]
+  
+  # dat[[i]]$DailyPrecipitation = ifelse(dat[[i]]$DailyPrecipitation == 'T', 0, dat[[i]]$DailyPrecipitation)
+  # dat[[i]]$HourlyPrecipitation = ifelse(dat[[i]]$HourlyPrecipitation == 'T', 0, dat[[i]]$HourlyPrecipitation)
+
+  # subset dates
+  dat[[i]]$date1 = substr(dat[[i]]$DATE, 1, 10)
+  dat[[i]]$date1 = as.Date(dat[[i]]$date1, format = "%Y-%m-%d")
+  
+  #this mostly applies to hourly data 
+   dat[[i]][,c(3:11)] = lapply(dat[[i]][,c(3:11)], as.character)
+   dat[[i]][,c(3:11)] = lapply(dat[[i]][,c(3:11)], parse_number)
+  # dat[[i]][,c(3:22)] = lapply(dat[[i]][,c(3:22)], as.numeric)     # w.2020 hourly precipitation data is good at this point.
+
+   # dat[[i]]$HourlyPrecipitation = dat[[i]]$HourlyPrecipitation*25.4 # hourly precipitation is in inches
+   
+ # try keeping all data recorded at 23:59 for the daily data? 
+  # dat[[i]]$time1 = format(as.POSIXct(dat[[i]]$DATE,format='%m/%d/%Y %H:%M:%S'),format='%m/%d/%Y')
+  dat[[i]]$time1 = substr(dat[[i]]$DATE,12,19) # 140482
+  dat.dailies[[i]] = dat[[i]][(dat[[i]]$time1  == '23:59:00'),] # 3380 
+  dat.dailies[[i]][,c(12:22)] = lapply(dat.dailies[[i]][,c(12:22)], as.character)
+  dat.dailies[[i]][,c(12:22)] = lapply(dat.dailies[[i]][,c(12:22)], parse_number)
+  dat.dailies[[i]]$DailyPrecipitation = ifelse(is.na(dat.dailies[[i]]$DailyPrecipitation), 0, dat.dailies[[i]]$DailyPrecipitation)
+  # dat.dailies[[i]]$DailyPrecipitation = dat.dailies[[i]]$DailyPrecipitation*25.4 # daily precipitation is in inches
+  DailyPrecipitation[[i]] = setNames(aggregate(dat.dailies[[i]]$DailyPrecipitation ~ dat.dailies[[i]]$date1, FUN = 'mean'), c("date1", "DailyPrecipitation"))
+  
+  # DailyAverageDryBulbTemperature, DailyAverageRelativeHumidity, DailyAverageSeaLevelPressure, AvgStationPressure, Avg Windspeed and do na.rm for the rest 
+  # z = dat.dailies[[i]]
+  # Fix negative infinity values. 
+  # Sets 0s to missing data for HourlyPrecipitation, HourlyWindGustSpeed, HourlyWindSpeed
+  dat[[i]][,c(3,9,10)] <-
+    lapply(dat[[i]][,c(3,9,10)], function(x) {
+      ifelse(x < 0 | is.na(x),
+             0,
+             x)
+    })
+  
+  # BackupElements = SNOW
+  # HourlyPresentWeatherType grepl SN then hourly precip = 0 
+  dat[[i]]$HourlyPrecipitation = ifelse(dat[[i]]$BackupElements == 'SNOW' | grepl('SN', dat[[i]]$HourlyPresentWeatherType), 0, dat[[i]]$HourlyPrecipitation)
+  
+  # also remove precip for hours where temp is below 32*F
+
+    dat[[i]]$HourlyPrecipitation = ifelse(dat[[i]]$HourlyDryBulbTemperature <32, 0, dat[[i]]$HourlyPrecipitation)
+  
+  
+  setDT(dat[[i]])
+  setDT(dat.dailies[[i]])
+  # cols: DailyAvgDryBulb, DailyAvgWindSpeed, DailyMaxDryBulb, DailyMinDryBulb, DailyPeakWind, DailyWindDirection,DailyPrecipitation
+  # not available for each day. 
+  # This is averaging all of the stations by day 
+  dat.dailies.mean[[i]] = dat.dailies[[i]][, lapply(.SD, mean, na.rm=TRUE), by = .(date1), .SDcols = c('DailyAverageDryBulbTemperature', 'DailyAverageWindSpeed', 'DailyMaximumDryBulbTemperature', 
+                                                                                       'DailyMinimumDryBulbTemperature', 'DailyPeakWindSpeed', 'DailyPeakWindDirection',
+                                                                                       'DailyAverageRelativeHumidity', 'DailyAverageStationPressure')]
+  # calc from the hourly values too. 
+  # First by station and day 
+  # This is averaging the hourly data per day for each station. Gives daily station average. Which should approx the dat.mean from above? 
+  dat.mean.hourly[[i]] = dat[[i]][, lapply(.SD, mean, na.rm=TRUE), by = .(date1), .SDcols = c('HourlyRelativeHumidity',
+                                                                                                      'HourlySeaLevelPressure', 'HourlyStationPressure',
+                                                                                                      'HourlyVisibility', 'HourlyWindDirection', 'HourlyWindGustSpeed',
+                                                                                                      'HourlyWindSpeed','HourlyDryBulbTemperature')]
+  library(chron)
+  #--------------------------------------------------------
+  # For calculating rainfall sum during the date. 
+  # Make Day and hour variable: 
+  # dat[[i]]$time1 = format(as.POSIXct(dat[[i]]$DATE,format='%m/%d/%Y %H:%M:%S'),format='%m/%d/%Y')
+  # dat[[1]]$hour = hour(dat[[1]]$time1)
+  dat[[i]]$date1 = substr(dat[[i]]$DATE, 1, 10)
+  dat[[i]]$date1 = as.Date(dat[[i]]$date1, format = "%Y-%m-%d")
+  dat[[i]]$time1 = substr(dat[[i]]$DATE,12,19) 
+  dat[[i]]$hour1 <- as.POSIXct(dat[[i]]$time1,format="%H:%M:%S")
+  dat[[i]]$hour = as.factor(hour(dat[[i]]$hour1))
+  
+  dat.precip.mean.hour[[i]] = dat[[i]][, lapply(.SD, mean, na.rm=TRUE), by = .(hour, date1), .SDcols = c('HourlyPrecipitation')] 
+  #average the hourly across the stations
+  dat.precip.sd.hour[[i]] = dat[[i]][, lapply(.SD, sd, na.rm=TRUE), by = .(hour, date1), .SDcols = c('HourlyPrecipitation')]
+  
+  
+  dat.precip.max.hour[[i]] = dat[[i]][, lapply(.SD, max, na.rm=TRUE), by = .(hour, date1), .SDcols = c('HourlyPrecipitation')]
+    # max hourly rainfall in state: 
+  dat.precip.max.hourly.rainfall.state[[i]] = dat.precip.max.hour[[i]][, lapply(.SD, max, na.rm=TRUE), by = .(date1), .SDcols = c('HourlyPrecipitation')]
+     
+  # then sum the hourly across the days 
+  dat.precip.sum.day[[i]] = dat.precip.mean.hour[[i]][, lapply(.SD, sum, na.rm=TRUE), by = .(date1), .SDcols = c('HourlyPrecipitation')]
+  
+
+  
+  #--------------------------------------------------------
+  # create region level averages too 
+  
+    dat.precip.mean.hour.region[[i]] = dat[[i]][, lapply(.SD, mean, na.rm=TRUE), by = .(hour, date1, region), .SDcols = c('HourlyPrecipitation')] 
+    dat.precip.sum.day.region[[i]] = dat.precip.mean.hour.region[[i]][, lapply(.SD, sum, na.rm=TRUE), by = .(date1, region), .SDcols = c('HourlyPrecipitation')]
+    
+    dat.precip.max.hourly.region1[[i]] = dat[[i]][, lapply(.SD, max, na.rm=TRUE), by = .(hour, date1, region), .SDcols = c('HourlyPrecipitation')]
+     dat.precip.max.hourly.region[[i]] = dat.precip.max.hourly.region1[[i]][, lapply(.SD, max, na.rm=TRUE), by = .(date1, region), .SDcols = c('HourlyPrecipitation')]
+
+
+  #--------------------------------------------------------  
+  # z = dat[[1]]
+  
+  #  Take the max instantaneous recorded in the state on each day. 
+  dat.max.state[[i]] = dat[[i]][, lapply(.SD, max, na.rm=TRUE), by = .(date1), .SDcols = c('HourlyPrecipitation','HourlyRelativeHumidity','HourlyWindGustSpeed', 'HourlyDryBulbTemperature')]
+  names(dat.max.state[[i]]) = c('date1','HourlyPrecipitationMax','HourlyRelativeHumidityMax','HourlyWindGustSpeedMax', 'HourlyDryBulbTemperatureMax')
+  
+  # weather.agg.new[[i]] = cbind.data.frame(weather.agg[[i]], dat.mean[[i]][,c(2:8)],dat.mean.hourly[[i]][,c(2:10)], dat.max.state[[i]][,c(2,3,4)], dat.max.avg[[i]][,c(2,3,4)])
+}
+# error NAs introduced by coercion and some infinites introduced for Hourly Relative Humidity 
+
+# Merge data
+# There was an issue when trying to merge the data within the loop. 
+# df.dat.mean.hourly.station = do.call(rbind, dat.mean.hourly.station) # 36431. Has NaNs
+df.dat.mean.hourly = setNames(do.call(rbind, dat.mean.hourly), c("date1",'Hourly_RelHum_Mean', 'Hourly_SeaPressure_Mean', 'Hourly_StationPressure_Mean','Hourly_Visibility_Mean', 'Hourly_WindDir_Mean', 'HourlyWindGust_Mean','HourlyWindSpeed_Mean', 'Hourly_Temp_Mean')) # 3653
+
+df.dat.dailies.mean = setNames(do.call(rbind, dat.dailies.mean) , c("date1",'Temp_Mean', 'AvgWindSpeed_Mean', 'MaxTemp_Mean',
+                                                                   'MinTemp_Mean', 'PeakWindSpd_Mean','PeakWindDir_Mean', 'AvgRelHum_Mean', 'AvgPressure_Mean'))
+                              # 3653. averages daily temp across all stations
+
+# this is hte reported daily precipitation totals. Not my calculated versions 
+df.Precipitation = setNames(do.call(rbind, DailyPrecipitation), c("date1",'Reported_PrecipSum'))
+df.dat.precip.sum.day = setNames(do.call(rbind, dat.precip.sum.day), c("date1", "Precip_Sum_Calc"))
+
+df.dat.max.state = setNames(do.call(rbind, dat.max.state), c("date1", "Precip_Max_inState", 'RelHumidity_Max_inState', 'WindGust_Max_inState', 'Temp_Max_inState'))
+
+
+weather.agg.test1 = merge(df.dat.mean.hourly,df.dat.dailies.mean, by = 'date1') # good
+weather.agg.test2 = merge(df.dat.max.state,df.dat.precip.sum.day, by = 'date1') # good
+weather.agg.test3 = merge(weather.agg.test1,weather.agg.test2, by = 'date1')
+weather.agg.new = merge(df.Precipitation,weather.agg.test3, by = 'date1')
+
+# check correlation between averages derived from hourly and averages derived from daily? 
+# pearson = corr, spearman = rank correlation
+df.total = weather.agg.new # this is daily averages 
+
+weather.agg.hum = df.total[,c(1,3,11,13,17)]
+weather.agg.hum$Hourly_RelHum_TempMean = (weather.agg.hum$Hourly_RelHum_Mean/100)*weather.agg.hum$Temp_Mean
+weather.agg.hum$Hourly_RelHum_TempMax = (weather.agg.hum$Hourly_RelHum_Mean/100)*weather.agg.hum$MaxTemp_Mean
+write.csv(weather.agg.hum, "~/Documents/IncubationPeriod_Analysis/Rainfall CSVs/weather_agg_humidity_state.csv", row.names = F)
+
+
+df.precip.sum.day.region = setNames(do.call(rbind, dat.precip.sum.day.region), c("date1",'region','Daily_PrecipSum'))
+# Here I want to take the max hourly rainfall by region for each day and region
+df.precip.max.day.region = setNames(do.call(rbind, dat.precip.max.hourly.region), c("date1",'region','Hourly_PrecipMax'))
+weather.agg.region = merge(df.precip.sum.day.region,df.precip.max.day.region, by = c('date1','region'))
+write.csv(weather.agg.region, "~/Documents/IncubationPeriod_Analysis/Rainfall CSVs/weather_agg_rain_region.csv", row.names = F) # 977 obs
+
+
+df.dat.max.state = setNames(do.call(rbind, dat.precip.max.hourly.rainfall.state), c("date1", "Precip_MaxHourly_inState"))
+# df.Precipitation = sum precip in day
+weather.agg.rain = merge(df.Precipitation,df.dat.max.state, by = 'date1')
+weather.agg.rain1 = merge(weather.agg.rain, df.dat.precip.sum.day, by = 'date1')
+# df.dat.precip.sum.day = summed hourly precip in day 
+write.csv(weather.agg.rain1,"~/Documents/IncubationPeriod_Analysis/Rainfall CSVs/weather_agg_rain_state.csv", row.names = F) # 977 obs
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+

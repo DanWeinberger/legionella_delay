@@ -77,7 +77,11 @@ w.2017 = weather.d %>%
 
 
 
+<<<<<<< HEAD
 rain_weights <- c(0,0, 0, 0, 0.10, 0.20, 0.40, 0.20, 0.10, 0,0,0,0,0,0,0,0,0,0,0,0) 
+=======
+rain_weights <- c(0.2,0.6, 0.2, 0, 0.00, 0, 0,0 , 0.00, 0,0,0,0,0,0,0,0,0,0,0,0) 
+>>>>>>> 7e4fd85c74693d051f2031162381a3db7fa79962
 rain_composite = as.matrix(w.2017[,-1]) %*% rain_weights
 
 set.seed(123)
@@ -176,14 +180,14 @@ plot(observed_ts$symptom_date, observed_ts$N_cases, type='l', main='N', bty='l')
 
 Xvars <- observed_ts %>%
   mutate(intercept=1) %>%
-  select(intercept,sin1,cos1,starts_with('rain')) %>%
-  as.matrix()
+  select(intercept,sin1,cos1,rain0, rain1,rain2,rain3,rain4,rain5,rain6,rain7,rain8,rain9,rain10) %>%
+    as.matrix()
 
 delay_dist = dgamma(x, shape = 4.96, scale = 1.27, log = FALSE)
 delay_dist <- delay_dist/sum(delay_dist)
 
 
-LogLike <- function(dat,par,  X=Xvars, delay_dist) {
+LogLike <- function(par,dat,  X=Xvars, delay_dist) {
 
   beta <- exp(par)
   beta[2:3] <- par[2:3] #effect of sine/cosine can be negative or positive
@@ -220,29 +224,35 @@ LogLike <- function(dat,par,  X=Xvars, delay_dist) {
     min.lambda <- min(lambda, na.rm=T)
     
     if(min(lambda, na.rm=T) >0){
-       LL <- -sum(dpois(dat$N_cases[-c(1:21)], lambda[-c(1:21)], log = TRUE))
+       negLL <- -sum(dpois(dat$N_cases[-c(1:21)], lambda[-c(1:21)], log = TRUE))
      }else{
-       LL <- 99999999 
+       negLL <- 99999999 
      }
-    return(LL)
+    return(negLL)
 }
 
 parms <- rnorm(ncol(Xvars),0,0.001)
 
-m.like = optim(par = parms, fn = LogLike, dat = observed_ts, X=Xvars, delay_dist=delay_dist, method='BFGS')
+# m.like = optim(par = parms, fn = LogLike, dat = observed_ts, X=Xvars, delay_dist=delay_dist, method='BFGS',
+#               hessian=TRUE)
+
+ m.like = nlm(f = LogLike,p = parms, dat = observed_ts, X=Xvars, delay_dist=delay_dist, 
+               hessian=TRUE)
 
 #m.like = nloptr::nloptr(x0 = parms, eval_f = LogLike, dat = observed_ts, X=Xvars, delay_dist=delay_dist,opts = list("algorithm"="NLOPT_LN_COBYLA"))
 
 m.like
 
-if(m.like$convergence==0){
+if(m.like$code==1){
   print('CONVERGED')
 }else{
   print('NOT-converged')
 }
 
-parms <- m.like$par
+parms <- m.like$estimate
 names(parms) <- colnames(Xvars)
+
+fisher_info<-solve(-m.like$hessian)
 
 
 parms.rain <-exp(parms[grep('rain', names(parms))])
@@ -251,8 +261,13 @@ parms.rain
 plot(parms.rain)
 points(rain_weights*rain_comp_weight, col='red')
 
+<<<<<<< HEAD
 # plot(cumsum(parms.rain))
 # points(cumsum(rain_weights*rain_comp_weight), col='red')
+=======
+plot(cumsum(parms.rain), ylim=c(0,max(cumsum(parms.rain))))
+points(cumsum(rain_weights*rain_comp_weight), col='red')
+>>>>>>> 7e4fd85c74693d051f2031162381a3db7fa79962
 ```
 
 

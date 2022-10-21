@@ -1,0 +1,501 @@
+
+---
+title: "Legionella case_match incubation delay"
+author: "Kelsie Cassell"
+date: '2022-09-23'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(lubridate)
+library(dplyr)
+library(reshape2)
+library(readr)
+library(rjags)
+library(stringr)
+library(gtools)
+#install.packages("hydroTSM")
+library(HDInterval)
+library(hydroTSM)
+library(data.table)
+```
+
+
+Build a case set that looks like a true LD case set in Connecticut
+Try this again with 2017 and 2018 data to see fit 
+
+``` {r}
+weather.d = read.csv("./Data/CONFIDENTIAL/observed_ts.csv") %>%
+  mutate(dates = as.Date(symptom_date, '%m/%d/%Y')) %>%
+  select(dates, rain0)
+
+weather.d <- read_csv("Data/weather_7years.csv")
+
+
+# some other rainfall versions: 
+weather.state <- read_csv("Data/weather_agg_rain_state.csv")
+humidity.state <- read_csv("Data/weather_agg_humidity_state.csv")
+mix = merge(weather.state, humidity.state, by = 'date1')
+mix$hum_norain = ifelse(mix$Precip_Sum_Calc <0.01 & mix$Hourly_RelHum_Mean > 85,1,0)
+mix$hum_norain_summer = ifelse(mix$Precip_Sum_Calc <0.01 & mix$Hourly_RelHum_Mean > 85 & mix$Temp_Mean > 70,1,0)
+
+
+weather.region <- read_csv("Data/weather_agg_rain_region.csv")
+
+plot(weather.state$Reported_PrecipSum, type = 'l', col = 'green', main = 'CT rainfall data')
+lines(weather.state$Precip_MaxHourly_inState, type = 'l', col = 'blue')
+
+weather.state = humidity.state
+weather.state = mix
+weather.state$rain0 = weather.state$Hourly_RelHum_TempMean
+weather.state$rain0 = weather.state$hum_norain_summer
+# weather.state$rain0 = weather.state$Precip_Sum_Calc
+# weather.state$rain0 = weather.state$Reported_PrecipSum - ruled this out 
+weather.state$dates = weather.state$date1
+# weather.d = weather.state[,c(6,5)]
+# weather.d = weather.state[,c(9,8)]
+weather.d = weather.state[,c(14,13)]
+
+# weather.d$rain0 = ifelse(weather.d$rain0 > 1, 1, 0)
+
+w.2017 = weather.d %>%
+  mutate( rain1 = lag(rain0,1),
+          rain2 = lag(rain0,2),
+          rain3 = lag(rain0,3),
+          rain4 = lag(rain0,4),
+          rain5 = lag(rain0,5),
+          rain6 = lag(rain0,6),
+          rain7 = lag(rain0,7),
+          rain8 = lag(rain0,8),
+          rain9 = lag(rain0,9),
+          rain10 = lag(rain0,10),
+         rain11 = lag(rain0,11),
+         rain12 = lag(rain0,12),
+         rain13 = lag(rain0,13),
+         rain14 = lag(rain0,14),
+         rain15 = lag(rain0,15),
+         rain16 = lag(rain0,16),
+         rain17 = lag(rain0,17),
+         rain18 = lag(rain0,18),
+         rain19 = lag(rain0,19),
+         rain20 = lag(rain0,20),
+          year=year(dates)
+          ) %>%
+  filter(year %in% c(2012, 2013, 2014, 2015, 2016,2017,2018)) %>%
+  select(dates,starts_with('rain')) %>%
+  filter(!is.na(rain20))
+
+```
+
+once we get to half an inch per day then it's easier to tease apart the 6-8 day lag from the rain1 and two day lag 
+Still shows that 14 day lag 
+
+Above ^^ the model is able to select lag days 6 and 7 as the best fit (however other days also have high coeff - like lag day 9)
+
+So here I'm assigning rain_weights to primarily days 6 and 7 to reflect what's seen in the case data too. 
+``` {r}
+# weather.d <- weather.d[,1:10]
+# subset to 2017 
+#weather.d$rain0 = ifelse(weather.d$rain0 > 0.25, 1, 0)
+
+w.2017 = weather.d %>%
+  mutate( rain1 = lag(rain0,1),
+          rain2 = lag(rain0,2),
+          rain3 = lag(rain0,3),
+          rain4 = lag(rain0,4),
+          rain5 = lag(rain0,5),
+          rain6 = lag(rain0,6),
+          rain7 = lag(rain0,7),
+          rain8 = lag(rain0,8),
+          rain9 = lag(rain0,9),
+          rain10 = lag(rain0,10),
+         rain11 = lag(rain0,11),
+         rain12 = lag(rain0,12),
+         rain13 = lag(rain0,13),
+         rain14 = lag(rain0,14),
+         rain15 = lag(rain0,15),
+         rain16 = lag(rain0,16),
+         rain17 = lag(rain0,17),
+         rain18 = lag(rain0,18),
+         rain19 = lag(rain0,19),
+         rain20 = lag(rain0,20),
+          year=year(dates)
+          ) %>%
+  filter(year %in% c(2012, 2013, 2014, 2015, 2016,2017,2018)) %>%
+  select(dates,starts_with('rain')) %>%
+  filter(!is.na(rain20))
+
+
+
+rain_weights <- c(0,0, 0, 0, 0.05, 0.15, 0.6, 0.15, 0.05, 0,0,0,0,0,0,0,0,0,0,0,0) 
+# rain_weights <- c(0,0, 0, 0, 0.10, 0.20, 0.4, 0.20, 0.10, 0,0,0,0,0,0,0,0,0,0,0,0) 
+
+rain_composite = as.matrix(w.2017[,-1]) %*% rain_weights
+
+set.seed(123)
+
+rain_comp_weight = 2 # this helps model fitting below. 
+
+df1  <- w.2017 %>%
+  mutate(t=row_number(),
+         sin1= 2*sin(2*pi*t/365),
+         cos1= 2*cos(2*pi*t/365),
+
+         N_exposures = rpois(length(dates), ( exp(-2 + 0.03*sin1) + rain_composite*rain_comp_weight ) ) 
+         )
+
+
+plot(df1$N_exposures, type = 'l', main = 'Generated case data')
+
+
+plot(w.2017$rain0, type = 'l', main = 'CT rainfall data')
+
+
+```
+
+
+Now use the simulated data in a basic dist lag model of association between exposure and rainfall
+```{r}
+# weather.d
+# when I use real weather data it seems like it's off by one day each time? 
+
+
+mod1 <- glm(N_exposures ~ rain0 + rain1 + rain2 + rain3 + rain4 + rain5 + rain6 + rain7 + rain8 + rain9 , data=df1, family=gaussian(link='identity'))
+
+summary(mod1)
+#coefs_rain <- coef(mod1)[-c(1,2,3)]
+coefs_rain <- coef(mod1)[grep('rain',names(coef(mod1)))] 
+coefs_rain/rain_comp_weight
+
+plot(coefs_rain)
+points(rain_comp_weight*rain_weights, col='red')
+
+plot(cumsum(coefs_rain))
+points(cumsum(rain_comp_weight*rain_weights) ,col='red')
+
+
+plot(coefs_rain,rain_comp_weight*rain_weights[1:10])
+
+
+
+```
+
+
+Test out JAGS model using the full case dataset then 
+```{r}
+x <- seq(0, 20, by=1)
+delay_dist = dgamma(x, shape = 4.96, scale = 1.27, log = FALSE)
+delay_dist <- delay_dist/sum(delay_dist)
+plot(delay_dist, type = 'l')
+#rmultinom(1,100,delay_dist)
+
+r1 <- rgamma(1000,shape = 4.96, scale = 1.27)
+
+```
+
+
+
+Generate some case data based on three years of generated weather data 
+```{r}
+set.seed(1234)
+df1 = df1[complete.cases(df1),]
+
+dist_data <- t(sapply(df1$N_exposures, function(x) rmultinom(1,x,delay_dist)))
+
+df2 <- cbind.data.frame('dates'=df1$dates, dist_data)
+
+# Reshape the date into long format, determine the symptom onset date based on exposure date + delay, then sum by symptom onset date to get 'observed' time series
+observed_ts <- reshape2::melt(df2, id.vars='dates') %>%
+  rename(exposure_date=dates) %>%
+  mutate(delay = as.numeric(as.character(variable)),
+         symptom_date= exposure_date + delay - 1) %>%
+  group_by(symptom_date) %>%
+  summarize(N_cases=sum(value))
+
+observed_ts <- merge(observed_ts, df1, by.x='symptom_date', by.y='dates')
+
+observed_ts$sin1 = cos(2*pi*observed_ts$t/365)
+observed_ts$cos1 = cos(2*pi*observed_ts$t/365)
+
+#observed_ts = merge(observed_ts,w.2017, by.y = 'dates', by.x = 'symptom_date', all.x = T)
+
+plot(observed_ts$symptom_date, observed_ts$N_cases, type='l', main='N', bty='l')
+
+```
+
+
+Fit to actual case data? Explore different versions of the rainfall variables 
+
+```{r}
+case.df = read.csv("~/Documents/IncubationPeriod_Analysis/EventInformationExtract_2011_2021.csv")
+case.df$ddate = as.Date(case.df$EVENT_DATE, format = '%m/%d/%y')
+
+# subset only symptom onset
+case.df = case.df[(case.df$EVENT_TYPE == 'SYMPTOM_ONSET_DATE'),] # 861 
+case.df$case1 = 1
+case.df.1 = setNames(aggregate(case.df$case1 ~ case.df$ddate, FUN = 'sum'), c("ddate", "case_sum"))
+case.dates <- cbind.data.frame('dates'=seq.Date(from=as.Date('2011-01-01'), to=as.Date('2021-12-31'), by='day'))
+case.df = merge(case.dates, case.df.1, by.x = 'dates', by.y = 'ddate', all.x = T)
+case.df$case_sum = ifelse(is.na(case.df$case_sum), 0, case.df$case_sum)
+# max is 6 cases in one day 
+zero = case.df[(case.df$case_sum == 0),] # 3327 days have a zero value;  82% of days have zero 
+
+```
+
+
+Merge in basic rainfall data to the case data
+```{r}
+
+# Reported_PrecipSum 
+case.df1 = merge(case.df, w.2017, by = 'dates', all.y = T)
+case.df1$symptom_date = case.df1$dates
+case.df1$N_cases = case.df1$case_sum
+
+case.df1$t = 1:nrow(case.df1)
+case.df1$sin1 = cos(2*pi*case.df1$t/365)
+case.df1$cos1 = cos(2*pi*case.df1$t/365)
+
+observed_ts = case.df1
+
+observed_ts = observed_ts[year(observed_ts$dates) %in% c(2011,2012,2013,2014,2015),]
+observed_ts = observed_ts[year(observed_ts$dates) %in% c(2016,2017,2018,2019,2020,2021),]
+
+
+```
+
+## Maximum likelihood model
+
+    
+```{r}
+
+# write.csv(observed_ts, '~/Documents/IncubationPeriod_Analysis/definitelynotcasedata.csv', row.names = F)
+
+
+Xvars <- observed_ts %>%
+  mutate(intercept=1) %>%
+  select(intercept,sin1,cos1,starts_with('rain')) %>%
+  as.matrix()
+par = NULL
+
+x <- seq(0, 20, by=1)
+delay_dist = dgamma(x, shape = 4.96, scale = 1.27, log = FALSE)
+delay_dist <- delay_dist/sum(delay_dist)
+
+
+LogLike <- function(dat, par, X, delay_dist) {
+
+  beta <- exp(par)
+  beta[2:3] <- par[2:3]
+  
+  # glm (epsilon ~ 1 + sin1 + cos1 + rain0 +...)
+  epsilon <-  X %*% beta  #linear  
+  # ep = Xvars %*% exp(par)
+    
+  epsilon.mat <- as.data.frame(epsilon) %>%
+     mutate(epsilon1=lag(epsilon,1),
+            epsilon2=lag(epsilon,2),
+            epsilon3=lag(epsilon,3),
+            epsilon4=lag(epsilon,4),
+            epsilon5=lag(epsilon,5),
+            epsilon6=lag(epsilon,6),
+            epsilon7=lag(epsilon,7),
+            epsilon8=lag(epsilon,8),
+            epsilon9=lag(epsilon,9),
+            epsilon10=lag(epsilon,10),
+            epsilon11=lag(epsilon,11),
+            epsilon12=lag(epsilon,12),
+            epsilon13=lag(epsilon,13),
+            epsilon14=lag(epsilon,14),
+            epsilon15=lag(epsilon,15),
+            epsilon16=lag(epsilon,16),
+            epsilon17=lag(epsilon,17),
+            epsilon18=lag(epsilon,18),
+            epsilon19=lag(epsilon,19),
+            epsilon20=lag(epsilon,20)
+            ) %>%
+    as.matrix()
+
+   
+    lambda <- epsilon.mat %*% delay_dist
+    
+  # l = ep.mat %*% delay_dist
+  #    m.l =  min(l, na.rm=T)
+    
+    min.lambda <- min(lambda, na.rm=T)
+    
+    if(min(lambda, na.rm=T) >0){
+       LL <- -sum(dpois(dat$N_cases[-c(1:21)], lambda[-c(1:21)], log = TRUE))
+     }else{
+       LL <- 99999999 
+     }
+    return(LL)
+}
+
+# set.seed(1234) # 1442.905
+set.seed(87654) # 1352.406
+# is this what we want to build the MCMC around?
+par <- rnorm(ncol(Xvars),0,0.1)
+
+m.like = optim(par = par, fn = LogLike, dat = observed_ts, X=Xvars, delay_dist=delay_dist, method='BFGS')
+m.like
+
+if(m.like$convergence==0){
+  print('CONVERGED')
+}else{
+  print('NOT-converged')
+}
+
+parms <- m.like$par
+names(parms) <- colnames(Xvars)
+
+
+parms.rain <-exp(parms[grep('rain', names(parms))])
+parms.rain
+
+plot(parms.rain)
+
+rm(par, LL, Xvars, m.like, lambda)
+```
+
+
+
+
+2022 Data
+Check the correlation between rainfall in 2022 with the distribution of case expoosure dates 
+```{r}
+
+case.2022 = read.csv("~/Documents/IncubationPeriod_Analysis/EventInformationExtract_Jan22_Oct22.csv")
+case.2022$ddate = as.Date(case.2022$EVENT_DATE, format = '%m/%d/%y')
+
+# subset only symptom onset
+case.2022 = case.2022[(case.2022$EVENT_TYPE == 'SYMPTOM_ONSET_DATE'),] # 861 
+case.2022$case1 = 1
+case.2022.1 = setNames(aggregate(case.2022$case1 ~ case.2022$ddate, FUN = 'sum'), c("ddate", "case_sum"))
+case.dates <- cbind.data.frame('dates'=seq.Date(from=as.Date('2022-01-01'), to=as.Date('2022-10-13'), by='day'))
+case.2022.df = merge(case.dates, case.2022.1, by.x = 'dates', by.y = 'ddate', all.x = T)
+case.2022.df$case_sum = ifelse(is.na(case.2022.df$case_sum), 0, case.2022.df$case_sum)
+
+case.2022.df$N_cases = case.2022.df$case_sum
+
+case.2022.df$t = 1:nrow(case.2022.df)
+case.2022.df$sin1 = cos(2*pi*case.2022.df$t/365)
+case.2022.df$cos1 = cos(2*pi*case.2022.df$t/365)
+
+
+# USe this to reconstruct the exposure date from the case data. 
+delay_dist = dgamma(seq(0, 20, by=1), shape = 4.96, scale = 1.27, log = FALSE)
+delay_dist <- delay_dist/sum(delay_dist)
+
+
+model_string <- "
+model{
+for(t in 32:N_times){ #22 lag from linking epsilon to lambda, and 10 lag from linking rainfall to epsilon
+  N_cases[t] ~ dpois(lambda[t])
+  
+  lambda[t] <- (epsilon[t]*delay_dist[1] + 
+               epsilon[t- 1 ]*delay_dist[2] + 
+               epsilon[t- 2 ]*delay_dist[3] +
+               epsilon[t- 3 ]*delay_dist[4] + 
+               epsilon[t- 4 ]*delay_dist[5] +
+               epsilon[t- 5 ]*delay_dist[6] + 
+               epsilon[t- 6 ]*delay_dist[7] +
+               epsilon[t- 7 ]*delay_dist[8] + 
+               epsilon[t- 8 ]*delay_dist[9] +
+               epsilon[t- 9 ]*delay_dist[10] + 
+               epsilon[t- 10 ]*delay_dist[11] +
+               epsilon[t- 11 ]*delay_dist[12] + 
+               epsilon[t- 12 ]*delay_dist[13] +
+               epsilon[t- 13 ]*delay_dist[14] + 
+               epsilon[t- 14 ]*delay_dist[15] +
+               epsilon[t- 15 ]*delay_dist[16] + 
+               epsilon[t- 16 ]*delay_dist[17] +
+               epsilon[t- 17 ]*delay_dist[18] +
+               epsilon[t- 18 ]*delay_dist[19] +
+               epsilon[t- 19 ]*delay_dist[20] +
+               epsilon[t- 20 ]*delay_dist[21] )
+            
+} 
+  for(t in 10:N_times){
+      epsilon[t] <- exp(alpha[t])
+    
+        
+  }
+
+   
+ alpha[10] ~ dnorm(0,(1-rho^2)*tau.alpha)
+ for(i in 11:N_times){
+  alpha[i] ~ dnorm(rho*alpha[i-1], tau.alpha) #AR(1) model
+ }
+
+    tau.alpha ~ dgamma(3,2)
+    
+    rho ~ dunif (-1,1)
+}
+"
+
+# the betas are logged to make sure they're positive 
+##############################################################
+#Model Fitting
+##############################################################
+inits1=list(".RNG.seed"=c(123), ".RNG.name"='base::Wichmann-Hill')
+inits2=list(".RNG.seed"=c(456), ".RNG.name"='base::Wichmann-Hill')
+inits3=list(".RNG.seed"=c(789), ".RNG.name"='base::Wichmann-Hill')
+##############################################
+#Model Organization
+##############################################
+model_spec<-textConnection(model_string)
+model_jags<-jags.model(model_spec, 
+                       inits=list(inits1,inits2, inits3),
+                       data=list('N_cases'=case.2022.df$N_cases,
+                                  # 'N_times'= 355, #could use whole dataset but would take a long time
+                                  'N_times'=286, #could use whole dataset but would take a long time
+                                                       'delay_dist'=delay_dist,
+                                 'sin365' = case.2022.df$sin365,
+                                 'cos365' = case.2022.df$cos365
+                                 # 'rain'=rain_df$rain1
+                                 # 'rain'=weather.d$rain0
+                                    ),
+                       n.adapt=10000, 
+                       n.chains=3)
+
+params<-c('lambda', 'beta', 'delta','epsilon', 'rho3','tau3.beta', 'int')
+
+posterior_samples<-coda.samples(model_jags, 
+                                params, 
+                                n.iter=10000)
+posterior_samples.all<-do.call(rbind,posterior_samples)
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
