@@ -1,0 +1,495 @@
+---
+title: "JAGS_IncubationPeriod_Dec2023"
+output: html_document
+date: "2023-12-19"
+---
+Last update: 13 Feb 2024
+
+
+Import Libraries
+```{r setup, include=FALSE}
+
+library(lubridate)
+library(dplyr)
+library(reshape2)
+library(rjags)
+library(stringr)
+library(gtools)
+library(HDInterval)
+library(ggplot2)
+library(coda)
+library(fitdistrplus)
+
+
+```
+
+
+
+Delay Dist 
+From a point source outbreak defined in Bays et al. 
+```{r}
+x <- seq(0, 20, by=1)
+delay_dist = dgamma(x, shape = 4.96, scale = 1.27, log = FALSE)
+
+```
+
+
+Delay Dist from NC DHHS
+```{r}
+
+NCDHHS = read.csv("Documents/IncubationPeriod_Analysis/NC DHHS Data/DUA_LG_FairOutbreak_Linelist_11NOV2023_Clean.csv")
+
+NCDHHS = NCDHHS[NCDHHS$Employee != 1,]
+NCDHHS = NCDHHS[!is.na(NCDHHS$Visit.Date.1),]
+NCDHHS$visit1 = as.Date(NCDHHS$Visit.Date.1, format = '%m/%d/%y')
+NCDHHS$symptom.date = as.Date(NCDHHS$Symptom.Onset.Date, format = '%m/%d/%y')
+NCDHHS = NCDHHS[!is.na(NCDHHS$symptom.date),]
+
+NCDHHS$incubation.period = NCDHHS$symptom.date - NCDHHS$visit1
+NCDHHS$case1 = 1 
+NCDHHS1 = NCDHHS[!(NCDHHS$incubation.period < 0),]
+NCDHHS1 = NCDHHS1 %>%
+            filter(!is.na(NCDHHS1$incubation.period)) # 95 
+NCDHHS1  = NCDHHS1 %>% 
+          filter(Employee != 1 & incubation.period > 0)
+
+# first day of visit only 
+fit.gamma <- fitdist(as.numeric(NCDHHS1$incubation.period), "gamma", method = "mme")
+summary(fit.gamma)
+x.x <- seq(0, 20, by=1)
+delay_dist1 = dgamma(x.x, shape = 5.3590725, scale = 1/0.7300765, log = F)
+
+ 
+#---------------------------------------------------------------------------------------#
+# for cases with multiple dates of visit, randomly select first or last date of visit for them: 
+
+
+NCDHHS.short = NCDHHS[NCDHHS$Visit.Date.2 != '',c('Event.ID','Visit.Date.1','Visit.Date.2')]
+facet = tidyr::gather(NCDHHS.short, group, visit.date, Visit.Date.1:Visit.Date.2)
+set.seed(1)
+facet1 = facet %>% 
+  group_by(Event.ID) %>% 
+  sample_n(1)
+facet1$visit1 = as.Date(facet1$visit.date, format = '%m/%d/%y')
+facet1 = facet1 %>%
+          dplyr::select(Event.ID, visit1)
+
+NCDHHS.long = NCDHHS[NCDHHS$Visit.Date.2 == '',c('Event.ID','Visit.Date.1')]
+NCDHHS.long$visit1 = as.Date(NCDHHS.long$Visit.Date.1, format = '%m/%d/%y')
+NCDHHS.long = NCDHHS.long %>%
+          dplyr::select(Event.ID, visit1)
+
+NCDHHS.all = rbind.data.frame(NCDHHS.long, facet1) %>%
+              filter(!is.na(visit1))
+
+NCDHHS.all1 = merge(NCDHHS.all, NCDHHS[,c('Event.ID', 'Symptom.Onset.Date')], by = 'Event.ID', all.x = T)
+
+NCDHHS.all1$symptom.date = as.Date(NCDHHS.all1$Symptom.Onset.Date, format = '%m/%d/%y')
+NCDHHS.all1$incubation.period = NCDHHS.all1$symptom.date - NCDHHS.all1$visit1
+
+NCDHHS.all1$case1 = 1
+NCDHHS.all1 = NCDHHS.all1[!(NCDHHS.all1$incubation.period < 0),]
+
+
+fit.gamma <- fitdist(NCDHHS.all1incubation.period, "gamma", method = "mme")
+summary(fit.gamma)
+x.x <- seq(0, 20, by=1)
+delay_dist.ncdhhs = dgamma(x.x, shape = 5.1225291, scale = 1/0.7362183, log = F)
+
+
+```
+
+
+
+CT DPH Case Import Jan 2011 to Dec 2021
+```{r}
+#import travel/HCA data 
+
+df  =  case.df  %>%
+            filter(DISEASE_STATUS.x != 'REVOKED') %>%
+            filter(STATE_HIDDEN %in% c('CT','')) %>%
+            filter(!TYPE_OF_LEGIONELLOSIS.x %in% c("PONTIAC FEVER (FEVER, MYALGIA WITHOUT PNEUMONIA)", 
+                                                   "Pontiac Fever (fever, myalgia without pneumonia)",
+                                                   "OTHR")) %>%
+            filter(TRAVEL_BEFORE_SYMPTOM_ONSET != 'Yes') %>%
+            filter(LEG_TRVL_CITY_0 == "") %>% # 921
+            filter(EVENT_TYPE.y == 'SYMPTOM_ONSET_DATE') # %>% #737
+           # filter(NOSOCOMIAL != 'PRESUMPT_HCA') # 714
+
+
+df$case1 = 1
+study.period<- cbind.data.frame('dates'=seq.Date(from=as.Date('2011-01-01'), to=as.Date('2021-12-31'), by='day'))
+
+
+case.df.1 = setNames(aggregate(df$case1 ~ df$ddate.y, FUN = 'sum'), c("ddate", "case_sum"))
+case.df = merge(study.period, case.df.1, by.x = c('dates'), by.y = c('ddate'), all.x = T)
+case.df$case_sum = ifelse(is.na(case.df$case_sum), 0, case.df$case_sum)
+ 
+```
+
+ 
+
+Weather import 
+- This data was cleaned and aggregated using the file: 
+
+```{r}
+weather.d = read.csv("Documents/IncubationPeriod_Analysis/Rainfall CSVs/weather_agg_humidity_state.csv")
+weather.d$ddate = as.Date(as.character(weather.d$date1))
+weather.d = weather.d[year(weather.d$ddate) != 2022,]
+```
+
+Select weather variable 
+```{r}
+
+weather.d$rain0 = weather.d$Reported_PrecipSum
+weather.d = weather.d[,c('ddate','rain0')]
+
+
+# or run analysis on relative humidity 
+weather.d$rain0 = weather.d$Hourly_RelHum_Mean
+
+# interaction between rel hum and rainfall 
+quantile(weather.d$Hourly_RelHum_Mean, probs= c(0,1,0.75))
+weather.d$hum_high = ifelse(weather.d$Hourly_RelHum_Mean > 81.81929, 1, 0) # 
+weather.d$hum_low = ifelse(weather.d$hum_high == 1,0,1)
+weather.d$rain0 = weather.d$Reported_PrecipSum
+weather.d = weather.d[,c('ddate','rain0','hum_low','hum_high')]
+
+
+```
+
+
+Standardize weather
+
+```{r}
+
+test = weather.d
+library(dplyr)
+test0 = test %>% 
+  group_by(year(ddate)) %>% 
+  mutate(
+    rain0_scale = as.numeric(scale(rain0)) 
+    )
+test1 = test0[,c('ddate','rain0_scale')]
+colnames(test1) = c('ddate','rain0')
+weather.d = test1
+weather.d$ddate = as.Date(weather.d$ddate)
+  
+```
+
+
+
+Randomize the rainfall data within each month and year 
+```{r}
+
+
+set.seed(123) # random 1
+set.seed(456) # random 2
+set.seed(789) # random 3 
+
+weather.d = weather.d %>% 
+  mutate(monthdate = paste(month(ddate),year(ddate))) %>%
+  group_by(monthdate) %>% 
+  mutate(random_rain0=sample(rain0))
+
+saveRDS(
+  weather.d,'Documents/IncubationPeriod_Analysis/legionella_delay/Results/rainfall_20Mar24_random3.rds')
+
+
+
+```
+
+
+Make observed TS with sin and cos vars 
+```{r}
+
+observed_ts = merge(case.df,weather.d, by.y = 'ddate', by.x = 'dates', all.x = T)
+observed_ts$N_cases = observed_ts$case_sum
+
+observed_ts$t = 1:nrow(observed_ts)
+
+observed_ts$sin1 = sin(2*pi*observed_ts$t/365)
+observed_ts$cos1 = cos(2*pi*observed_ts$t/365)
+
+observed_ts$sin2 = sin(2*pi*observed_ts$t/182)
+observed_ts$cos2 = cos(2*pi*observed_ts$t/182)
+
+observed_ts$year = year(observed_ts$dates)
+
+
+df = observed_ts
+
+```
+
+
+Base model that uses the previously published delay distribution (delay_dist) which extended 20 days 
+
+## BASE Model 
+```{r}
+
+ sink("leadlag_AR1_20delay.txt")
+
+ cat(
+  model_string <-
+" model{
+
+for(t in 37:N_times){
+
+N_cases[t] ~ dpois(y[t])
+
+ y[t]  <- (z[t]*delay_dist[1] + 
+               z[t- 1 ]*delay_dist[2] + 
+               z[t- 2 ]*delay_dist[3] +
+               z[t- 3 ]*delay_dist[4] + 
+               z[t- 4 ]*delay_dist[5] +
+               z[t- 5 ]*delay_dist[6] + 
+               z[t- 6 ]*delay_dist[7] +
+               z[t- 7 ]*delay_dist[8] + 
+               z[t- 8 ]*delay_dist[9] +
+               z[t- 9 ]*delay_dist[10] + 
+               z[t- 10 ]*delay_dist[11] +
+               z[t- 11 ]*delay_dist[12] + 
+               z[t- 12 ]*delay_dist[13] +
+               z[t- 13 ]*delay_dist[14] + 
+               z[t- 14 ]*delay_dist[15] +
+               z[t- 15 ]*delay_dist[16] + 
+               z[t- 16 ]*delay_dist[17] +
+               z[t- 17 ]*delay_dist[18] +
+               z[t- 18 ]*delay_dist[19] +
+               z[t- 19 ]*delay_dist[20] +
+               z[t- 20 ]*delay_dist[21] )
+
+}
+
+for(t in 16:N_times){
+
+z[t] ~ dpois(lambda[t])
+
+log(lambda[t]) <- ( 
+
+        int + rain[t-14]*beta[1] + rain[t-13]*beta[2] + rain[t-12]*beta[3] +  rain[t-11]*beta[4]  +   rain[t-10]*beta[5]
+        + rain[t-9]*beta[6] + rain[t-8]*beta[7] + rain[t-7]*beta[8] +  rain[t-6]*beta[9] 
+        + rain[t-5]*beta[10] + rain[t-4]*beta[11] + rain[t-3]*beta[12] +  rain[t-2]*beta[13]  +   rain[t-1]*beta[14]
+        + rain[t]*beta[15] + rain[t+1]*beta[16] + rain[t+2]*beta[17] 
+        +  rain[t+3]*beta[18] +  rain[t+4]*beta[19] +  rain[t+5]*beta[20] +  rain[t+6]*beta[21] +  rain[t+7]*beta[22]
+        +  rain[t+8]*beta[23] +  rain[t+9]*beta[24] + rain[t+10]*beta[25] +  rain[t+11]*beta[26] + rain[t+12]*beta[27]
+        + rain[t+13]*beta[28] +  rain[t+14]*beta[29]  
+        + delta[1]*sin1[t] + delta[2]*cos1[t] + delta[3]*sin2[t] + delta[4]*cos2[t]
+  + theta[1]*year[t]
+  
+        )
+}
+
+   int ~ dnorm(0, 1e-4)
+ 
+ 
+beta[1] ~ dnorm(0.00,(sigma2_beta_inv*(1.00 - alpha^2)))
+for(t in 2:29){
+   beta[t] ~ dnorm((alpha*beta[t-1]),sigma2_beta_inv)
+   }
+sigma2_beta_inv ~ dgamma(0.01,0.01)
+alpha ~ dunif(0,1.00)
+
+
+
+  for(k in 1:4){
+    delta[k] ~ dnorm(0, 1e-4)
+   }
+ 
+   
+
+theta[1] ~ dnorm(0, 1e-4)
+
+}
+"
+,fill = TRUE)
+sink()
+
+```
+
+
+Adding an interaction for high/low humidity in the model 
+```{r}
+
+ sink("test_AR1_DLM_interaction.txt")
+
+ cat(
+  model_string <-
+" model{
+
+for(t in 37:N_times){
+
+N_cases[t] ~ dpois(y[t])
+
+ y[t]  <- (z[t]*delay_dist[1] + 
+               z[t- 1 ]*delay_dist[2] + 
+               z[t- 2 ]*delay_dist[3] +
+               z[t- 3 ]*delay_dist[4] + 
+               z[t- 4 ]*delay_dist[5] +
+               z[t- 5 ]*delay_dist[6] + 
+               z[t- 6 ]*delay_dist[7] +
+               z[t- 7 ]*delay_dist[8] + 
+               z[t- 8 ]*delay_dist[9] +
+               z[t- 9 ]*delay_dist[10] + 
+               z[t- 10 ]*delay_dist[11] +
+               z[t- 11 ]*delay_dist[12] + 
+               z[t- 12 ]*delay_dist[13] +
+               z[t- 13 ]*delay_dist[14] + 
+               z[t- 14 ]*delay_dist[15] +
+               z[t- 15 ]*delay_dist[16] + 
+               z[t- 16 ]*delay_dist[17] +
+               z[t- 17 ]*delay_dist[18] +
+               z[t- 18 ]*delay_dist[19] +
+               z[t- 19 ]*delay_dist[20] +
+               z[t- 20 ]*delay_dist[21] )
+
+}
+
+for(t in 16:N_times){
+
+z[t] ~ dpois(lambda[t])
+
+log(lambda[t]) <- ( 
+
+
+        int + rain[t-14]*beta[1]*hum_high[t-14] + rain[t-13]*beta[2]*hum_high[t-13] + 
+        rain[t-12]*beta[3]*hum_high[t-12] +  rain[t-11]*beta[4]*hum_high[t-11]  +   rain[t-10]*beta[5]*hum_high[t-10]
+        + rain[t-9]*beta[6]*hum_high[t-9] + rain[t-8]*beta[7]*hum_high[t-8] + rain[t-7]*beta[8]*hum_high[t-7] +  
+        rain[t-6]*beta[9]*hum_high[t-6] 
+        + rain[t-5]*beta[10]*hum_high[t-5] + rain[t-4]*beta[11]*hum_high[t-4] + 
+        rain[t-3]*beta[12]*hum_high[t-3] +  rain[t-2]*beta[13]*hum_high[t-2]  +   rain[t-1]*beta[14]*hum_high[t-1]
+        + rain[t]*beta[15]*hum_high[t] + rain[t+1]*beta[16]*hum_high[t+1] + rain[t+2]*beta[17]*hum_high[t+2] 
+        +  rain[t+3]*beta[18]*hum_high[t+3] +  rain[t+4]*beta[19]*hum_high[t+4] +  
+        rain[t+5]*beta[20]*hum_high[t+5] +  rain[t+6]*beta[21]*hum_high[t+6] +  rain[t+7]*beta[22]*hum_high[t+7]
+        +  rain[t+8]*beta[23]*hum_high[t+8] +  rain[t+9]*beta[24]*hum_high[t+9] + rain[t+10]*beta[25]*hum_high[t+10] + 
+        rain[t+11]*beta[26]*hum_high[t+11] + rain[t+12]*beta[27]*hum_high[t+12]
+        + rain[t+13]*beta[28]*hum_high[t+13] +  rain[t+14]*beta[29]*hum_high[t+14]  +
+        
+        
+        rain[t-14]*beta[30]*hum_low[t-14] + rain[t-13]*beta[31]*hum_low[t-13] + 
+        rain[t-12]*beta[32]*hum_low[t-12] +  rain[t-11]*beta[33]*hum_low[t-11]  +   rain[t-10]*beta[34]*hum_low[t-10]
+        + rain[t-9]*beta[35]*hum_low[t-9] + rain[t-8]*beta[36]*hum_low[t-8] + rain[t-7]*beta[37]*hum_low[t-7] +  
+        rain[t-6]*beta[38]*hum_low[t-6] 
+        + rain[t-5]*beta[39]*hum_low[t-5] + rain[t-4]*beta[40]*hum_low[t-4] + 
+        rain[t-3]*beta[41]*hum_low[t-3] +  rain[t-2]*beta[42]*hum_low[t-2]  +   rain[t-1]*beta[43]*hum_low[t-1]
+        + rain[t]*beta[44]*hum_low[t] + rain[t+1]*beta[45]*hum_low[t+1] + rain[t+2]*beta[46]*hum_low[t+2]
+        +  rain[t+3]*beta[47]*hum_low[t+3] +  rain[t+4]*beta[48]*hum_low[t+4] +  
+        rain[t+5]*beta[49]*hum_low[t+5] +  rain[t+6]*beta[50]*hum_low[t+6] +  rain[t+7]*beta[51]*hum_low[t+7]
+        +  rain[t+8]*beta[52]*hum_low[t+8] +  rain[t+9]*beta[53]*hum_low[t+9] + rain[t+10]*beta[54]*hum_low[t+10] +  
+        rain[t+11]*beta[55]*hum_low[t+11] + rain[t+12]*beta[56]*hum_low[t+12]
+        + rain[t+13]*beta[57]*hum_low[t+13] +  rain[t+14]*beta[58]*hum_low[t+14]
+        
+        
+        + delta[1]*sin1[t] + delta[2]*cos1[t] + delta[3]*sin2[t] + delta[4]*cos2[t]
+  + theta[1]*year[t]
+  
+        )
+}
+
+   int ~ dnorm(0, 1e-4)
+ 
+ 
+beta[1] ~ dnorm(0.00,(sigma2_beta_inv*(1.00 - alpha^2)))
+for(t in 2:29){
+   beta[t] ~ dnorm((alpha*beta[t-1]),sigma2_beta_inv)
+}
+   
+beta[30] ~ dnorm(0.00,(sigma2_beta_inv*(1.00 - alpha^2)))
+for(t in 31:58){
+   beta[t] ~ dnorm((alpha*beta[t-1]),sigma2_beta_inv)
+}
+   
+sigma2_beta_inv ~ dgamma(0.01,0.01)
+alpha ~ dunif(0,1.00)
+
+
+
+  for(k in 1:4){
+    delta[k] ~ dnorm(0, 1e-4)
+   }
+ 
+   
+
+theta[1] ~ dnorm(0, 1e-4)
+
+}
+"
+,fill = TRUE)
+sink()
+
+
+```
+
+
+## RUN & STORE MODEL 
+
+```{r}
+
+##############################################################
+#Model Fitting
+##############################################################
+inits1=list(".RNG.seed"= c(123), ".RNG.name"='base::Wichmann-Hill')
+ inits2=list(".RNG.seed"= c(456), ".RNG.name"='base::Wichmann-Hill')
+##############################################
+#Model Organization
+##############################################
+ 
+# could give starting values - use values from model as starting point  
+
+model_jags<-jags.model( 
+  
+                    # model_spec, 
+                  # 'test_AR1_DLM_interaction.txt', 
+                   'leadlag_AR1_20delay.txt',  
+                       inits= list(inits1, inits2),
+                       data=list('N_cases'=df$N_cases,
+                                   'N_times'= 4000, 
+                                 'delay_dist'=delay_dist,
+                                 'sin1' = df$sin1,
+                                 'cos1' = df$cos1,
+                                 'sin2' = df$sin2,
+                                 'cos2' = df$cos2,
+                                 'year' = df$year,
+                                 'rain'=df$rain0 # this changes depending on what the predictor is
+                                # 'hum_high' = df$hum_high,
+                                 # 'hum_low' = df$hum_low,
+                                    ), 
+                       n.adapt=5000,
+                        n.chains=2) 
+ 
+
+# parameters to monitor  
+params<-c('beta', 'z', 'y', 'int', 'delta', 'alpha')
+
+
+posterior_samples<-coda.samples(model_jags, 
+                                params,  
+                                n.iter=20000)
+```
+
+
+
+# Calc fit stats
+
+
+
+Test the Geweke's convergence criteria
+
+```{r}
+
+beta_samples <- posterior_samples.all[,grepl('beta',colnames(posterior_samples.all))]
+mcmc1 = as.mcmc(beta_samples) # need to isolate each chain and each beta 
+geweke.plot(mcmc1)
+
+
+```
+
+
+
+
+
+
+
+
+
+
